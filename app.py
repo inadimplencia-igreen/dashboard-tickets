@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 import os
+import io
 
 st.set_page_config(page_title="SLA de Tickets — iGreen Energy", page_icon="⚡", layout="wide")
 
@@ -397,4 +398,145 @@ vt_tot = '<span class="vs">' + fmt_r(m['valor']) + '</span>' if m['valor']>0 els
 tbl += '<tr class="tr"><td>TOTAL GERAL</td>' + tc + '<td class="nt">' + str(total) + vt_tot + '</td><td>—</td><td>—</td></tr>'
 tbl += '</tbody></table>'
 st.markdown(tbl, unsafe_allow_html=True)
+
+st.divider()
+
+# ── DETALHE TICKETS EM ATRASO POR FORNECEDORA
+st.markdown('<div class="sec-label">Detalhe dos tickets em atraso — clique para ver</div>', unsafe_allow_html=True)
+
+all_forns = ['COMERC','VANTAGE','MATO GROSSO ENERGIA','COTESA-MOVE','SUNCLICK','FARO','ULTRA',
+             'SUNNE','SOLATIO','EDP','FIT','GV','BC']
+
+if 'detail_forn' not in st.session_state:
+    st.session_state.detail_forn = None
+
+# Botões por fornecedora agrupados por família
+for fam in ['Energizados','AZA','iVolt']:
+    forns_fam = FORN_BY_FAM[fam]
+    ft = tickets[tickets['Familia']==fam]
+    # só mostrar fornecedoras que têm atraso
+    forns_com_atraso = [f for f in forns_fam if len(tickets[(tickets['Fornecedora']==f) & tickets['Atraso']]) > 0]
+    if not forns_com_atraso:
+        continue
+    badge_cls = FAM_BADGE[fam]
+    st.markdown('<span class="badge ' + badge_cls + '" style="font-size:11px;padding:3px 10px">' + fam + '</span>', unsafe_allow_html=True)
+    btn_row = st.columns(min(len(forns_com_atraso), 6))
+    for i, forn in enumerate(forns_com_atraso):
+        n_atraso = len(tickets[(tickets['Fornecedora']==forn) & tickets['Atraso']])
+        with btn_row[i]:
+            ativo = st.session_state.detail_forn == forn
+            lbl = forn + ' (' + str(n_atraso) + ')'
+            if st.button(lbl, key='det_'+forn,
+                         type='primary' if ativo else 'secondary',
+                         use_container_width=True):
+                if ativo:
+                    st.session_state.detail_forn = None
+                else:
+                    st.session_state.detail_forn = forn
+                st.rerun()
+
+# Mostrar detalhe da fornecedora selecionada
+if st.session_state.detail_forn:
+    forn_sel = st.session_state.detail_forn
+    
+    # Buscar tickets em atraso desta fornecedora na base original
+    bko_cols = [c for c in data.columns if c.startswith('BKO') and 'Atribuido em' not in c and 'Atribuído em' not in c]
+    
+    def get_bko(row):
+        vals = []
+        for col in bko_cols:
+            v = str(row[col]).strip()
+            if v not in ['-','nan','']:
+                vals.append(v)
+        return ', '.join(vals) if vals else '-'
+
+    cut = pd.Timestamp(cutoff).replace(hour=23,minute=59,second=59)
+    sla_s = SLA_DAYS*24*3600
+    
+    detail_rows = []
+    for _, r in data[data['_Fornecedora']==forn_sel].iterrows():
+        c = r['_CriadoTS']; f = r['_FinalizadoTS']
+        if pd.isna(c): continue
+        enc  = pd.notna(f) and f<=cut
+        secs = int((f-c).total_seconds()) if enc else int((cut-c).total_seconds())
+        at   = secs>=sla_s
+        if enc or not at: continue  # só abertos em atraso
+        
+        dias_atraso = secs // 86400
+        horas_rest  = (secs % 86400) // 3600
+        tempo_str   = str(dias_atraso) + 'd ' + str(horas_rest) + 'h em atraso'
+        
+        detail_rows.append({
+            'Código':        str(r['Código']),
+            'Tipo':          str(r['Tipo']),
+            'Status':        str(r['Status']),
+            'Atribuição':    get_bko(r),
+            'Criado em':     r['_CriadoTS'].strftime('%d/%m/%Y') if pd.notna(r['_CriadoTS']) else '-',
+            'Tempo em atraso': tempo_str,
+            'Dias úteis':    str(r.get('Tempo em Aberto (Dias Úteis)','-')),
+            'Valor':         str(r['Valor Total']) if str(r['Valor Total']) not in ['-','nan'] else '-',
+        })
+    
+    df_detail = pd.DataFrame(detail_rows)
+    
+    n_total = len(df_detail)
+    valor_total = sum(r['_Valor'] for _, r in data[data['_Fornecedora']==forn_sel].iterrows()
+                      if str(r.get('_Valor',0)) != 'nan')
+    
+    st.markdown(
+        '<div style="background:#141414;border:1px solid #1e1e1e;border-radius:10px;padding:16px;margin-top:12px;">'
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+        '<div>'
+        '<span style="font-size:15px;font-weight:700;color:#e0e0e0">' + forn_sel + '</span>'
+        '<span style="font-size:12px;color:#ef5350;margin-left:10px;font-weight:600">' + str(n_total) + ' tickets em atraso</span>'
+        '</div></div>',
+        unsafe_allow_html=True)
+    
+    if len(df_detail) > 0:
+        # Tabela de detalhe
+        det_tbl = (
+            '<table class="igt"><thead><tr>'
+            '<th style="text-align:left">Código</th>'
+            '<th style="text-align:left">Tipo</th>'
+            '<th>Status</th>'
+            '<th>Atribuição</th>'
+            '<th>Criado em</th>'
+            '<th>Tempo em atraso</th>'
+            '<th>Dias úteis</th>'
+            '<th>Valor</th>'
+            '</tr></thead><tbody>'
+        )
+        for _, row in df_detail.iterrows():
+            atrib_color = '#5aad7e' if row['Atribuição'] != '-' else '#ef5350'
+            det_tbl += (
+                '<tr class="dr" style="display:table-row">'
+                '<td style="text-align:left;color:#42a5f5;font-weight:600">' + row['Código'] + '</td>'
+                '<td style="text-align:left;color:#ccc">' + row['Tipo'] + '</td>'
+                '<td style="color:#aaa">' + row['Status'] + '</td>'
+                '<td style="color:' + atrib_color + ';font-weight:500">' + row['Atribuição'] + '</td>'
+                '<td style="color:#888">' + row['Criado em'] + '</td>'
+                '<td style="color:#ef5350;font-weight:600">' + row['Tempo em atraso'] + '</td>'
+                '<td style="color:#888">' + row['Dias úteis'] + '</td>'
+                '<td style="color:#5aad7e;font-weight:500">' + row['Valor'] + '</td>'
+                '</tr>'
+            )
+        det_tbl += '</tbody></table>'
+        st.markdown(det_tbl, unsafe_allow_html=True)
+        
+        # Botão de download Excel
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_detail.to_excel(writer, index=False, sheet_name='Tickets em Atraso')
+        output.seek(0)
+        st.download_button(
+            label='Baixar Excel — ' + forn_sel,
+            data=output,
+            file_name='Atraso_' + forn_sel.replace(' ','_') + '.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            key='dl_'+forn_sel
+        )
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
 st.markdown('<br><div style="text-align:right;font-size:10px;color:#2a2a2a">iGreen Energy · Setor Inadimplencia Comercial</div>', unsafe_allow_html=True)
