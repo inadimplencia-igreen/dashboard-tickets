@@ -170,8 +170,9 @@ def calc_on_date(data, cutoff_date):
     rows  = []
     for _,r in data[data['_CriadoTS']<=cut].iterrows():
         c=r['_CriadoTS']; f=r['_FinalizadoTS']
-        enc  = pd.notna(f) and f<=cut
-        secs = int((f-c).total_seconds()) if enc else int((cut-c).total_seconds())
+        # Encerrado = APENAS pelo Status (Finalizado ou Cancelado)
+        enc  = str(r.get('Status','')).strip() in ['Finalizado','Cancelado']
+        secs = int((f-c).total_seconds()) if (pd.notna(f) and f<=cut) else int((cut-c).total_seconds())
         at   = secs>=sla_s
         rows.append({
             'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],
@@ -210,6 +211,24 @@ with st.sidebar:
     st.markdown('### iGreen Energy')
     st.markdown('SLA de Tickets')
     st.divider()
+
+    st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Base de dados</p>', unsafe_allow_html=True)
+    
+    planilhas_sb = listar_planilhas()
+    datas_sb = list(planilhas_sb.keys()) if planilhas_sb else []
+    if 'data_sel' not in st.session_state and datas_sb:
+        st.session_state.data_sel = datas_sb[0]
+    
+    for label in datas_sb:
+        ativo = st.session_state.get('data_sel') == label
+        if st.button(label, key='sb_btn_'+label,
+                     type='primary' if ativo else 'secondary',
+                     use_container_width=True):
+            st.session_state.data_sel = label
+            st.session_state.expanded = set()
+            st.rerun()
+
+    st.divider()
     st.markdown('**Atualizar:**\nSuba em `dados/` no GitHub:\n`Tickets_DDmesAAAA.xlsx`')
     st.divider()
     st.caption('SLA: 3 dias úteis · 13 fornecedoras')
@@ -232,18 +251,7 @@ st.markdown(
     '<div class="ig-meta">iGreen Energy &nbsp;·&nbsp; <b>SLA: ' + str(SLA_DAYS) + ' dias úteis</b></div></div>',
     unsafe_allow_html=True)
 
-# ── SELETOR DE DATA
-st.markdown('<div class="sec-label">Base de dados</div>', unsafe_allow_html=True)
-btn_cols = st.columns(min(len(datas), 8))
-for i, label in enumerate(datas):
-    with btn_cols[i % 8]:
-        ativo = st.session_state.data_sel == label
-        if st.button(label, key='btn_'+label,
-                     type='primary' if ativo else 'secondary',
-                     use_container_width=True):
-            st.session_state.data_sel = label
-            st.session_state.expanded = set()
-            st.rerun()
+# Seletor de data movido para o sidebar
 
 # ── DADOS
 with st.spinner('Carregando...'):
@@ -457,8 +465,9 @@ if st.session_state.detail_forn:
     for _, r in data[data['_Fornecedora']==forn_sel].iterrows():
         c = r['_CriadoTS']; f = r['_FinalizadoTS']
         if pd.isna(c): continue
-        enc  = pd.notna(f) and f<=cut
-        secs = int((f-c).total_seconds()) if enc else int((cut-c).total_seconds())
+        # Encerrado = APENAS pelo Status
+        enc  = str(r.get('Status','')).strip() in ['Finalizado','Cancelado']
+        secs = int((f-c).total_seconds()) if (pd.notna(f) and f<=cut) else int((cut-c).total_seconds())
         at   = secs>=sla_s
         if enc or not at: continue  # só abertos em atraso
         
