@@ -213,439 +213,612 @@ with st.sidebar:
     st.markdown('SLA de Tickets')
     st.divider()
 
+    if 'pagina' not in st.session_state:
+        st.session_state.pagina = 'dashboard'
+
     st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Base de dados</p>', unsafe_allow_html=True)
-    
+
     planilhas_sb = listar_planilhas()
     datas_sb = list(planilhas_sb.keys()) if planilhas_sb else []
     if 'data_sel' not in st.session_state and datas_sb:
         st.session_state.data_sel = datas_sb[0]
-    
+
     for label in datas_sb:
-        ativo = st.session_state.get('data_sel') == label
+        ativo = st.session_state.get('data_sel') == label and st.session_state.pagina == 'dashboard'
         if st.button(label, key='sb_btn_'+label,
                      type='primary' if ativo else 'secondary',
                      use_container_width=True):
             st.session_state.data_sel = label
+            st.session_state.pagina = 'dashboard'
             st.session_state.expanded = set()
             st.rerun()
 
     st.divider()
     st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Análise</p>', unsafe_allow_html=True)
-    ver_evolucao = st.toggle('Evolução por período', value=False)
+
+    ativo_evo = st.session_state.pagina == 'evolucao'
+    if st.button('Evolução por período', key='btn_evolucao',
+                 type='primary' if ativo_evo else 'secondary',
+                 use_container_width=True):
+        st.session_state.pagina = 'evolucao'
+        st.rerun()
+
     st.divider()
     st.markdown('**Atualizar:**\nSuba em `dados/` no GitHub:\n`Tickets_DDmesAAAA.xlsx`')
     st.divider()
     st.caption('SLA: 3 dias úteis · 13 fornecedoras')
 
-# ── PLANILHAS
+# ── ROTEAMENTO DE PÁGINAS
 planilhas = listar_planilhas()
-if not planilhas:
-    st.error('Nenhuma planilha em dados/.')
-    st.stop()
 
-datas = list(planilhas.keys())
-if 'data_sel' not in st.session_state: st.session_state.data_sel = datas[0]
-if 'expanded' not in st.session_state: st.session_state.expanded = set()
-
-# ── HEADER
-st.markdown(
-    '<div class="ig-header"><div class="ig-hl"><div class="ig-logo">G</div>'
-    '<div><div class="ig-title">Dashboard de Tickets</div>'
-    '<div class="ig-sub">Setor Inadimplência Comercial</div></div></div>'
-    '<div class="ig-meta">iGreen Energy &nbsp;·&nbsp; <b>SLA: ' + str(SLA_DAYS) + ' dias úteis</b></div></div>',
-    unsafe_allow_html=True)
-
-# Seletor de data movido para o sidebar
-
-# ── DADOS
-with st.spinner('Carregando...'):
-    data    = load_data(planilhas[st.session_state.data_sel])
-    cutoff  = data['_CriadoTS'].max().date()
-    tickets = calc_on_date(data, cutoff)
-    m       = agg(tickets)
-    total   = m['total']
-
-fam_data = {}
-for fam in ['Energizados','AZA','iVolt']:
-    ft  = tickets[tickets['Familia']==fam]
-    fm  = agg(ft)
-    byf = ft[ft['Atraso']].groupby('Fornecedora').size()
-    maior   = byf.idxmax() if len(byf)>0 else '-'
-    maior_n = int(byf.max()) if len(byf)>0 else 0
-    fam_data[fam] = {'m':fm,'maior':maior,'maior_n':maior_n}
-
-# ── CARDS
-st.markdown('<div class="sec-label">Não resolvidos em atraso — apenas abertos</div>', unsafe_allow_html=True)
-cols = st.columns(4)
-for i, fam in enumerate(['Energizados','AZA','iVolt']):
-    fd = fam_data[fam]; fm = fd['m']
-    sub_lbl = 'Fornecedora' if fam=='Energizados' else 'Maior atraso'
-    sub_val = 'COMERC' if fam=='Energizados' else fd['maior'] + ' (' + str(fd['maior_n']) + ')'
-    with cols[i]:
-        st.markdown(
-            '<div class="card card-alert">'
-            '<div class="card-fam">' + fam + '</div>'
-            '<div class="card-num num-red">' + str(fm['atraso_n']) + '</div>'
-            '<div class="card-row"><span class="c-lbl">Atribuído (BKO)</span><span class="c-red">' + str(fm['atr_atrib']) + '</span></div>'
-            '<div class="card-row"><span class="c-lbl">Não atribuído</span><span class="c-val">' + str(fm['atr_natrib']) + '</span></div>'
-            '<div class="card-row"><span class="c-lbl">' + sub_lbl + '</span><span class="c-val">' + sub_val + '</span></div>'
-            '<div class="card-row"><span class="c-lbl">Valor em atraso</span><span class="c-val">' + fmt_r(fm['atraso_v']) + '</span></div>'
-            '<div class="card-hl"><span class="hl-lbl">Valor total família</span><span class="hl-val">' + fmt_r(fm['valor']) + '</span></div>'
-            '</div>', unsafe_allow_html=True)
-
-with cols[3]:
+if st.session_state.get('pagina','dashboard') == 'evolucao':
+    # ── PÁGINA DE EVOLUÇÃO
     st.markdown(
-        '<div class="card card-total">'
-        '<div class="card-fam">Total geral</div>'
-        '<div class="card-num num-grn">' + str(m['atraso_n']) + '</div>'
-        '<div class="card-row"><span class="c-lbl">Atribuído (BKO)</span><span class="c-red">' + str(m['atr_atrib']) + '</span></div>'
-        '<div class="card-row"><span class="c-lbl">Não atribuído</span><span class="c-val">' + str(m['atr_natrib']) + '</span></div>'
-        '<div class="card-row"><span class="c-lbl">% do total</span><span class="c-val">' + pct(m['atraso_n'],total) + '</span></div>'
-        '<div class="card-row"><span class="c-lbl">Valor em atraso</span><span class="c-val">' + fmt_r(m['atraso_v']) + '</span></div>'
-        '<div class="card-hl"><span class="hl-lbl">Valor total geral</span><span class="hl-val">' + fmt_r(m['valor']) + '</span></div>'
-        '</div>', unsafe_allow_html=True)
-
-st.divider()
-
-# ── TOP 5
-st.markdown('<div class="sec-label">Top 5 fornecedoras em atraso</div>', unsafe_allow_html=True)
-top5 = (tickets[tickets['Atraso']]
-        .groupby(['Fornecedora','Familia'])
-        .agg(n=('Atraso','count'), v=('Valor','sum'))
-        .reset_index().sort_values('n',ascending=False).head(5))
-
-max_n  = int(top5['n'].max()) if len(top5)>0 else 1
-ords   = ['1o','2o','3o','4o','5o']
-t5cols = st.columns(5)
-for i, row in enumerate(top5.itertuples()):
-    badge = FAM_T5.get(row.Familia,'f-e')
-    mr, mf = get_medias(data, row.Fornecedora)
-    pct_bar = int(row.n / max_n * 100)
-    with t5cols[i]:
-        st.markdown(
-            '<div class="t5-card">'
-            '<div class="t5-rank">' + ords[i] + ' lugar</div>'
-            '<div class="t5-nome">' + row.Fornecedora + '</div>'
-            '<span class="t5-fam ' + badge + '">' + row.Familia + '</span>'
-            '<div class="t5-row"><span class="t5-lbl">Em atraso</span><span class="t5-val">' + str(row.n) + '</span></div>'
-            '<div class="t5-row"><span class="t5-lbl">Valor</span><span class="t5-val">' + fmt_r(row.v) + '</span></div>'
-            '<div class="t5-row"><span class="t5-lbl">Media 1a resp. (forn.)</span><span class="t5-med">' + mr + '</span></div>'
-            '<div class="t5-row"><span class="t5-lbl">Media finaliz. (forn.)</span><span class="t5-med">' + mf + '</span></div>'
-            '<div class="bar-bg"><div class="bar-fg" style="width:' + str(pct_bar) + '%"></div></div>'
-            '</div>', unsafe_allow_html=True)
-
-st.divider()
-
-# ── TABELA
-st.markdown('<div class="sec-label">Visao completa — ' + str(total) + ' tickets · clique na familia para expandir</div>', unsafe_allow_html=True)
-
-st.markdown(
-    '<div class="leg">'
-    '<span class="li"><span class="ls" style="background:#5aad7e"></span>Atribuido no prazo</span>'
-    '<span class="li"><span class="ls" style="background:#ef5350"></span>Atribuido em atraso</span>'
-    '<span class="li"><span class="ls" style="background:#ffa726"></span>Nao atribuido no prazo</span>'
-    '<span class="li"><span class="ls" style="background:#ef5350"></span>Nao atribuido em atraso</span>'
-    '<span class="li"><span class="ls" style="background:#2e7d5260"></span>Encerrado no prazo</span>'
-    '<span class="li"><span class="ls" style="background:#333"></span>Encerrado em atraso</span>'
-    '</div>'
-    '<div class="med-note">Colunas em azul = medias calculadas pela fornecedora</div>',
-    unsafe_allow_html=True)
-
-exp_cols = st.columns(3)
-for i, fam in enumerate(['Energizados','AZA','iVolt']):
-    with exp_cols[i]:
-        is_open = fam in st.session_state.expanded
-        lbl = ('Recolher ' if is_open else 'Expandir ') + fam
-        if st.button(lbl, key='exp_'+fam,
-                     type='primary' if is_open else 'secondary',
-                     use_container_width=True):
-            if is_open: st.session_state.expanded.discard(fam)
-            else:       st.session_state.expanded.add(fam)
-            st.rerun()
-
-keys_n = ['atr_prazo','atr_atraso','nat_prazo','nat_atraso','enc_prazo','enc_atraso']
-keys_v = ['atr_prazo_v','atr_atraso_v','nat_prazo_v','nat_atraso_v','enc_prazo_v','enc_atraso_v']
-clss   = ['ng','nr','na','nr','ng','ns']
-
-tbl = (
-    '<table class="igt"><thead><tr>'
-    '<th style="text-align:left">Familia / Fornecedora</th>'
-    '<th>Atrib.<br>Prazo</th><th>Atrib.<br>Atraso</th>'
-    '<th>N.Atrib.<br>Prazo</th><th>N.Atrib.<br>Atraso</th>'
-    '<th>Enc.<br>Prazo</th><th>Enc.<br>Atraso</th>'
-    '<th>Total</th>'
-    '<th class="th-med">Media 1a Resp.<br>(Fornecedora)</th>'
-    '<th class="th-med">Media Finaliz.<br>(Fornecedora)</th>'
-    '</tr></thead><tbody>'
-)
-
-t6n = [0]*6; t6v = [0]*6
-for fam in ['Energizados','AZA','iVolt']:
-    ft  = tickets[tickets['Familia']==fam]
-    fm  = agg(ft)
-    ns  = [fm[k] for k in keys_n]
-    vs  = [fm[k] for k in keys_v]
-    for i in range(6): t6n[i]+=ns[i]; t6v[i]+=vs[i]
-    badge = FAM_BADGE[fam]
-    cells = ''.join(cel(ns[i],vs[i],clss[i]) for i in range(6))
-    vt = '<span class="vs">' + fmt_r(fm['valor']) + '</span>' if fm['valor']>0 else ''
-    tbl += '<tr class="fr"><td><span class="badge ' + badge + '">' + fam + '</span></td>' + cells + '<td class="nt">' + str(fm['total']) + vt + '</td><td>—</td><td>—</td></tr>'
-
-    if fam in st.session_state.expanded:
-        for forn in FORN_BY_FAM[fam]:
-            fd2 = tickets[tickets['Fornecedora']==forn]
-            if not len(fd2): continue
-            fm2  = agg(fd2)
-            ns2  = [fm2[k] for k in keys_n]
-            vs2  = [fm2[k] for k in keys_v]
-            c2   = ''.join(cel(ns2[i],vs2[i],clss[i]) for i in range(6))
-            vt2  = '<span class="vs">' + fmt_r(fm2['valor']) + '</span>' if fm2['valor']>0 else ''
-            mr, mf = get_medias(data, forn)
-            mr_h = '<span class="vm">' + mr + '</span>' if mr!='-' else '<span class="z">—</span>'
-            mf_h = '<span class="vm">' + mf + '</span>' if mf!='-' else '<span class="z">—</span>'
-            tbl += '<tr class="dr"><td>' + forn + '</td>' + c2 + '<td>' + str(fm2['total']) + vt2 + '</td><td>' + mr_h + '</td><td>' + mf_h + '</td></tr>'
-
-tc = ''.join(cel(t6n[i],t6v[i],clss[i]) for i in range(6))
-vt_tot = '<span class="vs">' + fmt_r(m['valor']) + '</span>' if m['valor']>0 else ''
-tbl += '<tr class="tr"><td>TOTAL GERAL</td>' + tc + '<td class="nt">' + str(total) + vt_tot + '</td><td>—</td><td>—</td></tr>'
-tbl += '</tbody></table>'
-st.markdown(tbl, unsafe_allow_html=True)
-
-st.divider()
-
-# ── DETALHE TICKETS EM ATRASO POR FORNECEDORA
-st.markdown('<div class="sec-label">Detalhe dos tickets em atraso — clique para ver</div>', unsafe_allow_html=True)
-
-all_forns = ['COMERC','VANTAGE','MATO GROSSO ENERGIA','COTESA-MOVE','SUNCLICK','FARO','ULTRA',
-             'SUNNE','SOLATIO','EDP','FIT','GV','BC']
-
-if 'detail_forn' not in st.session_state:
-    st.session_state.detail_forn = None
-
-# Botões por fornecedora agrupados por família
-for fam in ['Energizados','AZA','iVolt']:
-    forns_fam = FORN_BY_FAM[fam]
-    ft = tickets[tickets['Familia']==fam]
-    # só mostrar fornecedoras que têm atraso
-    forns_com_atraso = [f for f in forns_fam if len(tickets[(tickets['Fornecedora']==f) & tickets['Atraso']]) > 0]
-    if not forns_com_atraso:
-        continue
-    badge_cls = FAM_BADGE[fam]
-    st.markdown('<span class="badge ' + badge_cls + '" style="font-size:11px;padding:3px 10px">' + fam + '</span>', unsafe_allow_html=True)
-    btn_row = st.columns(min(len(forns_com_atraso), 6))
-    for i, forn in enumerate(forns_com_atraso):
-        n_atraso = len(tickets[(tickets['Fornecedora']==forn) & tickets['Atraso']])
-        with btn_row[i]:
-            ativo = st.session_state.detail_forn == forn
-            lbl = forn + ' (' + str(n_atraso) + ')'
-            if st.button(lbl, key='det_'+forn,
-                         type='primary' if ativo else 'secondary',
-                         use_container_width=True):
-                if ativo:
-                    st.session_state.detail_forn = None
-                else:
-                    st.session_state.detail_forn = forn
-                st.rerun()
-
-# Mostrar detalhe da fornecedora selecionada
-if st.session_state.detail_forn:
-    forn_sel = st.session_state.detail_forn
-    
-    # Buscar tickets em atraso desta fornecedora na base original
-    bko_cols = [c for c in data.columns if c.startswith('BKO') and 'Atribuido em' not in c and 'Atribuído em' not in c]
-    
-    def get_bko(row):
-        vals = []
-        for col in bko_cols:
-            v = str(row[col]).strip()
-            if v not in ['-','nan','']:
-                vals.append(v)
-        return ', '.join(vals) if vals else '-'
-
-    cut = pd.Timestamp(cutoff).replace(hour=23,minute=59,second=59)
-    sla_s = SLA_DAYS*24*3600
-    
-    detail_rows = []
-    for _, r in data[data['_Fornecedora']==forn_sel].iterrows():
-        c = r['_CriadoTS']; f = r['_FinalizadoTS']
-        if pd.isna(c): continue
-        # Encerrado = APENAS pelo Status
-        enc  = str(r.get('Status','')).strip() in ['Finalizado','Cancelado']
-        secs = int((f-c).total_seconds()) if (pd.notna(f) and f<=cut) else int((cut-c).total_seconds())
-        at   = secs>=sla_s
-        if enc or not at: continue  # só abertos em atraso
-        
-        dias_atraso = secs // 86400
-        horas_rest  = (secs % 86400) // 3600
-        tempo_str   = str(dias_atraso) + 'd ' + str(horas_rest) + 'h em atraso'
-        
-        detail_rows.append({
-            'Código':        str(r['Código']),
-            'Tipo':          str(r['Tipo']),
-            'Status':        str(r['Status']),
-            'Atribuição':    get_bko(r),
-            'Criado em':     r['_CriadoTS'].strftime('%d/%m/%Y') if pd.notna(r['_CriadoTS']) else '-',
-            'Tempo em atraso': tempo_str,
-            'Dias úteis':    str(r.get('Tempo em Aberto (Dias Úteis)','-')),
-            'Valor':         str(r['Valor Total']) if str(r['Valor Total']) not in ['-','nan'] else '-',
-        })
-    
-    df_detail = pd.DataFrame(detail_rows)
-    
-    n_total = len(df_detail)
-    valor_total = sum(r['_Valor'] for _, r in data[data['_Fornecedora']==forn_sel].iterrows()
-                      if str(r.get('_Valor',0)) != 'nan')
-    
-    st.markdown(
-        '<div style="background:#141414;border:1px solid #1e1e1e;border-radius:10px;padding:16px;margin-top:12px;">'
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
-        '<div>'
-        '<span style="font-size:15px;font-weight:700;color:#e0e0e0">' + forn_sel + '</span>'
-        '<span style="font-size:12px;color:#ef5350;margin-left:10px;font-weight:600">' + str(n_total) + ' tickets em atraso</span>'
-        '</div></div>',
+        '<div class="ig-header"><div class="ig-hl"><div class="ig-logo">G</div>'
+        '<div><div class="ig-title">Evolução por Período</div>'
+        '<div class="ig-sub">Análise histórica de atrasos</div></div></div>'
+        '<div class="ig-meta">iGreen Energy &nbsp;·&nbsp; <b>SLA: 3 dias úteis</b></div></div>',
         unsafe_allow_html=True)
-    
-    if len(df_detail) > 0:
-        # Tabela de detalhe
-        det_tbl = (
-            '<table class="igt"><thead><tr>'
-            '<th style="text-align:left">Código</th>'
-            '<th style="text-align:left">Tipo</th>'
-            '<th>Status</th>'
-            '<th>Atribuição</th>'
-            '<th>Criado em</th>'
-            '<th>Tempo em atraso</th>'
-            '<th>Dias úteis</th>'
-            '<th>Valor</th>'
-            '</tr></thead><tbody>'
-        )
-        for _, row in df_detail.iterrows():
-            atrib_color = '#5aad7e' if row['Atribuição'] != '-' else '#ef5350'
-            det_tbl += (
-                '<tr class="dr" style="display:table-row">'
-                '<td style="text-align:left;color:#42a5f5;font-weight:600">' + row['Código'] + '</td>'
-                '<td style="text-align:left;color:#ccc">' + row['Tipo'] + '</td>'
-                '<td style="color:#aaa">' + row['Status'] + '</td>'
-                '<td style="color:' + atrib_color + ';font-weight:500">' + row['Atribuição'] + '</td>'
-                '<td style="color:#888">' + row['Criado em'] + '</td>'
-                '<td style="color:#ef5350;font-weight:600">' + row['Tempo em atraso'] + '</td>'
-                '<td style="color:#888">' + row['Dias úteis'] + '</td>'
-                '<td style="color:#5aad7e;font-weight:500">' + row['Valor'] + '</td>'
-                '</tr>'
-            )
-        det_tbl += '</tbody></table>'
-        st.markdown(det_tbl, unsafe_allow_html=True)
-        
-        # Botão de download Excel
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_detail.to_excel(writer, index=False, sheet_name='Tickets em Atraso')
-        output.seek(0)
-        st.download_button(
-            label='Baixar Excel — ' + forn_sel,
-            data=output,
-            file_name='Atraso_' + forn_sel.replace(' ','_') + '.xlsx',
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            key='dl_'+forn_sel
-        )
-    
-    st.markdown('</div>', unsafe_allow_html=True)
 
-
-
-
-
-# ── ANÁLISE DE EVOLUÇÃO (controlada pelo toggle do sidebar)
-if ver_evolucao:
-    st.divider()
-    st.markdown('<div class="sec-label">Análise de evolução — tickets em atraso por período</div>', unsafe_allow_html=True)
-
-    @st.cache_data
-    def calc_evolucao(planilhas_keys):
-        resultados = []
-        for label in planilhas_keys:
-            filepath = planilhas[label]
-            try:
-                xl = pd.ExcelFile(filepath)
-                sheets = [s for s in xl.sheet_names if s != 'Resumo por Tipo']
-                dfs = []
-                for sheet in sheets:
-                    df = pd.read_excel(filepath, sheet_name=sheet)
-                    forn = sheet.replace('Tickets - ','')
-                    df['_Fornecedora'] = forn
-                    df['_Familia'] = FAMILIA_MAP.get(forn,'Outros')
-                    dfs.append(df)
-                d = pd.concat(dfs, ignore_index=True)
-                d['_Valor'] = d['Valor Total'].apply(parse_valor)
-                d['_CriadoTS'] = pd.to_datetime(d['Criado Em'], errors='coerce')
-                d['_FinalizadoTS'] = pd.to_datetime(d['Data Finalização'], errors='coerce')
-                cut = d['_CriadoTS'].max()
-                sla_s = SLA_DAYS * 24 * 3600
-                total_at = 0; valor_at = 0.0
-                for _, r in d[d['_CriadoTS']<=cut].iterrows():
-                    c=r['_CriadoTS']; f=r['_FinalizadoTS']
-                    enc = str(r.get('Status','')).strip() in ['Finalizado','Cancelado']
-                    secs = int((f-c).total_seconds()) if (pd.notna(f) and f<=cut) else int((cut-c).total_seconds())
-                    if not enc and secs>=sla_s:
-                        total_at += 1
-                        valor_at += float(r['_Valor'])
-                resultados.append({'Data': label, 'Em Atraso': total_at, 'Valor em Atraso': valor_at})
-            except:
-                pass
-        return pd.DataFrame(resultados)
-
-    df_evo = calc_evolucao(tuple(sorted(planilhas.keys())))
-
-    if len(df_evo) >= 2:
+    if len(planilhas) < 2:
+        st.info('Adicione mais de uma planilha na pasta dados/ para ver a evolução.')
+    else:
         import plotly.graph_objects as go
 
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=df_evo['Data'], y=df_evo['Em Atraso'],
-            mode='lines+markers+text',
-            name='Tickets em atraso',
-            line={'color':'#ef5350','width':2},
-            marker={'size':8,'color':'#ef5350'},
-            text=[str(v) for v in df_evo['Em Atraso']],
-            textposition='top center',
-            textfont={'color':'#ef5350','size':12},
-        ))
-        fig.add_trace(go.Scatter(
-            x=df_evo['Data'], y=df_evo['Valor em Atraso'],
-            mode='lines+markers',
-            name='Valor em atraso (R$)',
-            line={'color':'#5aad7e','width':2,'dash':'dot'},
-            marker={'size':8,'color':'#5aad7e'},
-            yaxis='y2'
-        ))
-        fig.update_layout(
-            paper_bgcolor='#0f0f0f',
-            plot_bgcolor='#141414',
-            height=300,
-            margin={'l':20,'r':60,'t':20,'b':20},
-            legend={'orientation':'h','x':0,'y':1.12,'font':{'color':'#888','size':11},'bgcolor':'rgba(0,0,0,0)'},
-            xaxis={'gridcolor':'#1e1e1e','linecolor':'#252525','tickfont':{'color':'#888','size':12}},
-            yaxis={'title':'Tickets','titlefont':{'color':'#ef5350','size':11},'tickfont':{'color':'#ef5350','size':11},'gridcolor':'#1a1a1a'},
-            yaxis2={'title':'Valor (R$)','titlefont':{'color':'#5aad7e','size':11},'tickfont':{'color':'#5aad7e','size':11},'overlaying':'y','side':'right','showgrid':False},
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        @st.cache_data
+        def calc_evolucao(keys_tuple):
+            resultados = []
+            for label in keys_tuple:
+                filepath = planilhas[label]
+                try:
+                    xl = pd.ExcelFile(filepath)
+                    sheets = [s for s in xl.sheet_names if s != 'Resumo por Tipo']
+                    dfs = []
+                    for sheet in sheets:
+                        df = pd.read_excel(filepath, sheet_name=sheet)
+                        forn = sheet.replace('Tickets - ','')
+                        df['_Fornecedora'] = forn
+                        df['_Familia'] = FAMILIA_MAP.get(forn,'Outros')
+                        dfs.append(df)
+                    d = pd.concat(dfs, ignore_index=True)
+                    d['_Valor'] = d['Valor Total'].apply(parse_valor)
+                    d['_CriadoTS'] = pd.to_datetime(d['Criado Em'], errors='coerce')
+                    d['_FinalizadoTS'] = pd.to_datetime(d['Data Finalização'], errors='coerce')
+                    cut = d['_CriadoTS'].max()
+                    sla_s = SLA_DAYS * 24 * 3600
+                    total_at = 0; valor_at = 0.0
+                    en_at = 0; az_at = 0; iv_at = 0
+                    for _, r in d[d['_CriadoTS']<=cut].iterrows():
+                        c=r['_CriadoTS']; f=r['_FinalizadoTS']
+                        enc = str(r.get('Status','')).strip() in ['Finalizado','Cancelado']
+                        secs = int((f-c).total_seconds()) if (pd.notna(f) and f<=cut) else int((cut-c).total_seconds())
+                        if not enc and secs>=sla_s:
+                            total_at += 1
+                            valor_at += float(r.get('_Valor',0))
+                            fam = r['_Familia']
+                            if fam=='Energizados': en_at+=1
+                            elif fam=='AZA': az_at+=1
+                            elif fam=='iVolt': iv_at+=1
+                    resultados.append({
+                        'Data':label,'Em Atraso':total_at,'Valor em Atraso':valor_at,
+                        'Energizados':en_at,'AZA':az_at,'iVolt':iv_at
+                    })
+                except Exception as e:
+                    pass
+            return pd.DataFrame(resultados)
 
-        # Variação
-        var = int(df_evo['Em Atraso'].iloc[-1]) - int(df_evo['Em Atraso'].iloc[-2])
-        sinal = '+' if var > 0 else ''
-        cor = '#ef5350' if var > 0 else '#5aad7e'
+        df_evo = calc_evolucao(tuple(sorted(planilhas.keys())))
+
+        if len(df_evo) >= 2:
+            # Cards de variação
+            var = int(df_evo['Em Atraso'].iloc[-1]) - int(df_evo['Em Atraso'].iloc[-2])
+            sinal = '+' if var > 0 else ''
+            cor = '#ef5350' if var > 0 else '#5aad7e'
+            icone = '▲' if var > 0 else '▼'
+
+            c1,c2,c3,c4 = st.columns(4)
+            with c1:
+                st.markdown(
+                    '<div class="card card-total">'
+                    '<div class="card-fam">Variação período</div>'
+                    '<div class="card-num" style="color:'+cor+'">'+sinal+str(var)+'</div>'
+                    '<div class="card-row"><span class="c-lbl">'+df_evo["Data"].iloc[-2]+' → '+df_evo["Data"].iloc[-1]+'</span></div>'
+                    '</div>', unsafe_allow_html=True)
+            with c2:
+                st.markdown(
+                    '<div class="card card-alert">'
+                    '<div class="card-fam">Total atual</div>'
+                    '<div class="card-num num-red">'+str(df_evo["Em Atraso"].iloc[-1])+'</div>'
+                    '<div class="card-row"><span class="c-lbl">tickets em atraso</span></div>'
+                    '</div>', unsafe_allow_html=True)
+            with c3:
+                st.markdown(
+                    '<div class="card card-alert">'
+                    '<div class="card-fam">Período anterior</div>'
+                    '<div class="card-num num-red">'+str(df_evo["Em Atraso"].iloc[-2])+'</div>'
+                    '<div class="card-row"><span class="c-lbl">tickets em atraso</span></div>'
+                    '</div>', unsafe_allow_html=True)
+            with c4:
+                v_atual = df_evo["Valor em Atraso"].iloc[-1]
+                st.markdown(
+                    '<div class="card card-alert">'
+                    '<div class="card-fam">Valor em atraso atual</div>'
+                    '<div class="card-num num-red" style="font-size:22px">'+fmt_r(v_atual)+'</div>'
+                    '</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="sec-label" style="margin-top:20px">Evolução total de tickets em atraso</div>', unsafe_allow_html=True)
+
+            # Gráfico principal
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=df_evo['Data'], y=df_evo['Em Atraso'],
+                mode='lines+markers+text',
+                name='Total em atraso',
+                line={'color':'#ef5350','width':2},
+                marker={'size':10,'color':'#ef5350'},
+                text=[str(v) for v in df_evo['Em Atraso']],
+                textposition='top center',
+                textfont={'color':'#ef5350','size':13},
+            ))
+            fig.update_layout(
+                paper_bgcolor='#0f0f0f', plot_bgcolor='#141414',
+                height=280, margin={'l':20,'r':20,'t':10,'b':20},
+                legend={'orientation':'h','x':0,'y':1.15,'font':{'color':'#888','size':11},'bgcolor':'rgba(0,0,0,0)'},
+                xaxis={'gridcolor':'#1e1e1e','tickfont':{'color':'#888','size':12}},
+                yaxis={'gridcolor':'#1a1a1a','tickfont':{'color':'#aaa','size':11}},
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown('<div class="sec-label">Evolução por família</div>', unsafe_allow_html=True)
+
+            # Gráfico por família
+            fig2 = go.Figure()
+            fig2.add_trace(go.Scatter(x=df_evo['Data'],y=df_evo['Energizados'],mode='lines+markers',name='Energizados',line={'color':'#5aad7e','width':2},marker={'size':8}))
+            fig2.add_trace(go.Scatter(x=df_evo['Data'],y=df_evo['AZA'],mode='lines+markers',name='AZA',line={'color':'#ffa726','width':2},marker={'size':8}))
+            fig2.add_trace(go.Scatter(x=df_evo['Data'],y=df_evo['iVolt'],mode='lines+markers',name='iVolt',line={'color':'#42a5f5','width':2},marker={'size':8}))
+            fig2.update_layout(
+                paper_bgcolor='#0f0f0f', plot_bgcolor='#141414',
+                height=260, margin={'l':20,'r':20,'t':10,'b':20},
+                legend={'orientation':'h','x':0,'y':1.2,'font':{'color':'#888','size':11},'bgcolor':'rgba(0,0,0,0)'},
+                xaxis={'gridcolor':'#1e1e1e','tickfont':{'color':'#888','size':12}},
+                yaxis={'gridcolor':'#1a1a1a','tickfont':{'color':'#aaa','size':11}},
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+
+            # Tabela histórico
+            st.markdown('<div class="sec-label">Histórico completo</div>', unsafe_allow_html=True)
+            tbl_evo = (
+                '<table class="igt"><thead><tr>'
+                '<th style="text-align:left">Data base</th>'
+                '<th>Total em atraso</th><th>Energizados</th>'
+                '<th>AZA</th><th>iVolt</th><th>Valor em atraso</th>'
+                '</tr></thead><tbody>'
+            )
+            for _, row in df_evo.iterrows():
+                tbl_evo += (
+                    '<tr class="dr" style="display:table-row">'
+                    '<td style="text-align:left;color:#ccc;font-weight:600">'+str(row['Data'])+'</td>'
+                    '<td class="nr">'+str(int(row['Em Atraso']))+'</td>'
+                    '<td class="ng">'+str(int(row['Energizados']))+'</td>'
+                    '<td class="na">'+str(int(row['AZA']))+'</td>'
+                    '<td style="color:#42a5f5;font-weight:600">'+str(int(row['iVolt']))+'</td>'
+                    '<td class="ng">'+fmt_r(row['Valor em Atraso'])+'</td>'
+                    '</tr>'
+                )
+            tbl_evo += '</tbody></table>'
+            st.markdown(tbl_evo, unsafe_allow_html=True)
+
+else:
+    # ── PÁGINA PRINCIPAL DO DASHBOARD
+    # ── PLANILHAS
+    planilhas = listar_planilhas()
+    if not planilhas:
+        st.error('Nenhuma planilha em dados/.')
+        st.stop()
+    
+    datas = list(planilhas.keys())
+    if 'data_sel' not in st.session_state: st.session_state.data_sel = datas[0]
+    if 'expanded' not in st.session_state: st.session_state.expanded = set()
+    
+    # ── HEADER
+    st.markdown(
+        '<div class="ig-header"><div class="ig-hl"><div class="ig-logo">G</div>'
+        '<div><div class="ig-title">Dashboard de Tickets</div>'
+        '<div class="ig-sub">Setor Inadimplência Comercial</div></div></div>'
+        '<div class="ig-meta">iGreen Energy &nbsp;·&nbsp; <b>SLA: ' + str(SLA_DAYS) + ' dias úteis</b></div></div>',
+        unsafe_allow_html=True)
+    
+    # Seletor de data movido para o sidebar
+    
+    # ── DADOS
+    with st.spinner('Carregando...'):
+        data    = load_data(planilhas[st.session_state.data_sel])
+        cutoff  = data['_CriadoTS'].max().date()
+        tickets = calc_on_date(data, cutoff)
+        m       = agg(tickets)
+        total   = m['total']
+    
+    fam_data = {}
+    for fam in ['Energizados','AZA','iVolt']:
+        ft  = tickets[tickets['Familia']==fam]
+        fm  = agg(ft)
+        byf = ft[ft['Atraso']].groupby('Fornecedora').size()
+        maior   = byf.idxmax() if len(byf)>0 else '-'
+        maior_n = int(byf.max()) if len(byf)>0 else 0
+        fam_data[fam] = {'m':fm,'maior':maior,'maior_n':maior_n}
+    
+    # ── CARDS
+    st.markdown('<div class="sec-label">Não resolvidos em atraso — apenas abertos</div>', unsafe_allow_html=True)
+    cols = st.columns(4)
+    for i, fam in enumerate(['Energizados','AZA','iVolt']):
+        fd = fam_data[fam]; fm = fd['m']
+        sub_lbl = 'Fornecedora' if fam=='Energizados' else 'Maior atraso'
+        sub_val = 'COMERC' if fam=='Energizados' else fd['maior'] + ' (' + str(fd['maior_n']) + ')'
+        with cols[i]:
+            st.markdown(
+                '<div class="card card-alert">'
+                '<div class="card-fam">' + fam + '</div>'
+                '<div class="card-num num-red">' + str(fm['atraso_n']) + '</div>'
+                '<div class="card-row"><span class="c-lbl">Atribuído (BKO)</span><span class="c-red">' + str(fm['atr_atrib']) + '</span></div>'
+                '<div class="card-row"><span class="c-lbl">Não atribuído</span><span class="c-val">' + str(fm['atr_natrib']) + '</span></div>'
+                '<div class="card-row"><span class="c-lbl">' + sub_lbl + '</span><span class="c-val">' + sub_val + '</span></div>'
+                '<div class="card-row"><span class="c-lbl">Valor em atraso</span><span class="c-val">' + fmt_r(fm['atraso_v']) + '</span></div>'
+                '<div class="card-hl"><span class="hl-lbl">Valor total família</span><span class="hl-val">' + fmt_r(fm['valor']) + '</span></div>'
+                '</div>', unsafe_allow_html=True)
+    
+    with cols[3]:
         st.markdown(
-            '<div style="background:#141414;border:1px solid #1e1e1e;border-radius:8px;padding:12px 16px;display:flex;gap:32px;">'
-            '<div><span style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.06em">Variação</span><br>'
-            '<span style="font-size:20px;font-weight:700;color:' + cor + '">' + sinal + str(var) + ' tickets</span></div>'
-            '<div><span style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.06em">Última base</span><br>'
-            '<span style="font-size:16px;font-weight:600;color:#ccc">' + str(df_evo["Data"].iloc[-1]) + '</span></div>'
-            '<div><span style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.06em">Total em atraso</span><br>'
-            '<span style="font-size:20px;font-weight:700;color:#ef5350">' + str(df_evo["Em Atraso"].iloc[-1]) + '</span></div>'
-            '</div>',
+            '<div class="card card-total">'
+            '<div class="card-fam">Total geral</div>'
+            '<div class="card-num num-grn">' + str(m['atraso_n']) + '</div>'
+            '<div class="card-row"><span class="c-lbl">Atribuído (BKO)</span><span class="c-red">' + str(m['atr_atrib']) + '</span></div>'
+            '<div class="card-row"><span class="c-lbl">Não atribuído</span><span class="c-val">' + str(m['atr_natrib']) + '</span></div>'
+            '<div class="card-row"><span class="c-lbl">% do total</span><span class="c-val">' + pct(m['atraso_n'],total) + '</span></div>'
+            '<div class="card-row"><span class="c-lbl">Valor em atraso</span><span class="c-val">' + fmt_r(m['atraso_v']) + '</span></div>'
+            '<div class="card-hl"><span class="hl-lbl">Valor total geral</span><span class="hl-val">' + fmt_r(m['valor']) + '</span></div>'
+            '</div>', unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # ── TOP 5
+    st.markdown('<div class="sec-label">Top 5 fornecedoras em atraso</div>', unsafe_allow_html=True)
+    top5 = (tickets[tickets['Atraso']]
+            .groupby(['Fornecedora','Familia'])
+            .agg(n=('Atraso','count'), v=('Valor','sum'))
+            .reset_index().sort_values('n',ascending=False).head(5))
+    
+    max_n  = int(top5['n'].max()) if len(top5)>0 else 1
+    ords   = ['1o','2o','3o','4o','5o']
+    t5cols = st.columns(5)
+    for i, row in enumerate(top5.itertuples()):
+        badge = FAM_T5.get(row.Familia,'f-e')
+        mr, mf = get_medias(data, row.Fornecedora)
+        pct_bar = int(row.n / max_n * 100)
+        with t5cols[i]:
+            st.markdown(
+                '<div class="t5-card">'
+                '<div class="t5-rank">' + ords[i] + ' lugar</div>'
+                '<div class="t5-nome">' + row.Fornecedora + '</div>'
+                '<span class="t5-fam ' + badge + '">' + row.Familia + '</span>'
+                '<div class="t5-row"><span class="t5-lbl">Em atraso</span><span class="t5-val">' + str(row.n) + '</span></div>'
+                '<div class="t5-row"><span class="t5-lbl">Valor</span><span class="t5-val">' + fmt_r(row.v) + '</span></div>'
+                '<div class="t5-row"><span class="t5-lbl">Media 1a resp. (forn.)</span><span class="t5-med">' + mr + '</span></div>'
+                '<div class="t5-row"><span class="t5-lbl">Media finaliz. (forn.)</span><span class="t5-med">' + mf + '</span></div>'
+                '<div class="bar-bg"><div class="bar-fg" style="width:' + str(pct_bar) + '%"></div></div>'
+                '</div>', unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # ── TABELA
+    st.markdown('<div class="sec-label">Visao completa — ' + str(total) + ' tickets · clique na familia para expandir</div>', unsafe_allow_html=True)
+    
+    st.markdown(
+        '<div class="leg">'
+        '<span class="li"><span class="ls" style="background:#5aad7e"></span>Atribuido no prazo</span>'
+        '<span class="li"><span class="ls" style="background:#ef5350"></span>Atribuido em atraso</span>'
+        '<span class="li"><span class="ls" style="background:#ffa726"></span>Nao atribuido no prazo</span>'
+        '<span class="li"><span class="ls" style="background:#ef5350"></span>Nao atribuido em atraso</span>'
+        '<span class="li"><span class="ls" style="background:#2e7d5260"></span>Encerrado no prazo</span>'
+        '<span class="li"><span class="ls" style="background:#333"></span>Encerrado em atraso</span>'
+        '</div>'
+        '<div class="med-note">Colunas em azul = medias calculadas pela fornecedora</div>',
+        unsafe_allow_html=True)
+    
+    exp_cols = st.columns(3)
+    for i, fam in enumerate(['Energizados','AZA','iVolt']):
+        with exp_cols[i]:
+            is_open = fam in st.session_state.expanded
+            lbl = ('Recolher ' if is_open else 'Expandir ') + fam
+            if st.button(lbl, key='exp_'+fam,
+                         type='primary' if is_open else 'secondary',
+                         use_container_width=True):
+                if is_open: st.session_state.expanded.discard(fam)
+                else:       st.session_state.expanded.add(fam)
+                st.rerun()
+    
+    keys_n = ['atr_prazo','atr_atraso','nat_prazo','nat_atraso','enc_prazo','enc_atraso']
+    keys_v = ['atr_prazo_v','atr_atraso_v','nat_prazo_v','nat_atraso_v','enc_prazo_v','enc_atraso_v']
+    clss   = ['ng','nr','na','nr','ng','ns']
+    
+    tbl = (
+        '<table class="igt"><thead><tr>'
+        '<th style="text-align:left">Familia / Fornecedora</th>'
+        '<th>Atrib.<br>Prazo</th><th>Atrib.<br>Atraso</th>'
+        '<th>N.Atrib.<br>Prazo</th><th>N.Atrib.<br>Atraso</th>'
+        '<th>Enc.<br>Prazo</th><th>Enc.<br>Atraso</th>'
+        '<th>Total</th>'
+        '<th class="th-med">Media 1a Resp.<br>(Fornecedora)</th>'
+        '<th class="th-med">Media Finaliz.<br>(Fornecedora)</th>'
+        '</tr></thead><tbody>'
+    )
+    
+    t6n = [0]*6; t6v = [0]*6
+    for fam in ['Energizados','AZA','iVolt']:
+        ft  = tickets[tickets['Familia']==fam]
+        fm  = agg(ft)
+        ns  = [fm[k] for k in keys_n]
+        vs  = [fm[k] for k in keys_v]
+        for i in range(6): t6n[i]+=ns[i]; t6v[i]+=vs[i]
+        badge = FAM_BADGE[fam]
+        cells = ''.join(cel(ns[i],vs[i],clss[i]) for i in range(6))
+        vt = '<span class="vs">' + fmt_r(fm['valor']) + '</span>' if fm['valor']>0 else ''
+        tbl += '<tr class="fr"><td><span class="badge ' + badge + '">' + fam + '</span></td>' + cells + '<td class="nt">' + str(fm['total']) + vt + '</td><td>—</td><td>—</td></tr>'
+    
+        if fam in st.session_state.expanded:
+            for forn in FORN_BY_FAM[fam]:
+                fd2 = tickets[tickets['Fornecedora']==forn]
+                if not len(fd2): continue
+                fm2  = agg(fd2)
+                ns2  = [fm2[k] for k in keys_n]
+                vs2  = [fm2[k] for k in keys_v]
+                c2   = ''.join(cel(ns2[i],vs2[i],clss[i]) for i in range(6))
+                vt2  = '<span class="vs">' + fmt_r(fm2['valor']) + '</span>' if fm2['valor']>0 else ''
+                mr, mf = get_medias(data, forn)
+                mr_h = '<span class="vm">' + mr + '</span>' if mr!='-' else '<span class="z">—</span>'
+                mf_h = '<span class="vm">' + mf + '</span>' if mf!='-' else '<span class="z">—</span>'
+                tbl += '<tr class="dr"><td>' + forn + '</td>' + c2 + '<td>' + str(fm2['total']) + vt2 + '</td><td>' + mr_h + '</td><td>' + mf_h + '</td></tr>'
+    
+    tc = ''.join(cel(t6n[i],t6v[i],clss[i]) for i in range(6))
+    vt_tot = '<span class="vs">' + fmt_r(m['valor']) + '</span>' if m['valor']>0 else ''
+    tbl += '<tr class="tr"><td>TOTAL GERAL</td>' + tc + '<td class="nt">' + str(total) + vt_tot + '</td><td>—</td><td>—</td></tr>'
+    tbl += '</tbody></table>'
+    st.markdown(tbl, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # ── DETALHE TICKETS EM ATRASO POR FORNECEDORA
+    st.markdown('<div class="sec-label">Detalhe dos tickets em atraso — clique para ver</div>', unsafe_allow_html=True)
+    
+    all_forns = ['COMERC','VANTAGE','MATO GROSSO ENERGIA','COTESA-MOVE','SUNCLICK','FARO','ULTRA',
+                 'SUNNE','SOLATIO','EDP','FIT','GV','BC']
+    
+    if 'detail_forn' not in st.session_state:
+        st.session_state.detail_forn = None
+    
+    # Botões por fornecedora agrupados por família
+    for fam in ['Energizados','AZA','iVolt']:
+        forns_fam = FORN_BY_FAM[fam]
+        ft = tickets[tickets['Familia']==fam]
+        # só mostrar fornecedoras que têm atraso
+        forns_com_atraso = [f for f in forns_fam if len(tickets[(tickets['Fornecedora']==f) & tickets['Atraso']]) > 0]
+        if not forns_com_atraso:
+            continue
+        badge_cls = FAM_BADGE[fam]
+        st.markdown('<span class="badge ' + badge_cls + '" style="font-size:11px;padding:3px 10px">' + fam + '</span>', unsafe_allow_html=True)
+        btn_row = st.columns(min(len(forns_com_atraso), 6))
+        for i, forn in enumerate(forns_com_atraso):
+            n_atraso = len(tickets[(tickets['Fornecedora']==forn) & tickets['Atraso']])
+            with btn_row[i]:
+                ativo = st.session_state.detail_forn == forn
+                lbl = forn + ' (' + str(n_atraso) + ')'
+                if st.button(lbl, key='det_'+forn,
+                             type='primary' if ativo else 'secondary',
+                             use_container_width=True):
+                    if ativo:
+                        st.session_state.detail_forn = None
+                    else:
+                        st.session_state.detail_forn = forn
+                    st.rerun()
+    
+    # Mostrar detalhe da fornecedora selecionada
+    if st.session_state.detail_forn:
+        forn_sel = st.session_state.detail_forn
+        
+        # Buscar tickets em atraso desta fornecedora na base original
+        bko_cols = [c for c in data.columns if c.startswith('BKO') and 'Atribuido em' not in c and 'Atribuído em' not in c]
+        
+        def get_bko(row):
+            vals = []
+            for col in bko_cols:
+                v = str(row[col]).strip()
+                if v not in ['-','nan','']:
+                    vals.append(v)
+            return ', '.join(vals) if vals else '-'
+    
+        cut = pd.Timestamp(cutoff).replace(hour=23,minute=59,second=59)
+        sla_s = SLA_DAYS*24*3600
+        
+        detail_rows = []
+        for _, r in data[data['_Fornecedora']==forn_sel].iterrows():
+            c = r['_CriadoTS']; f = r['_FinalizadoTS']
+            if pd.isna(c): continue
+            # Encerrado = APENAS pelo Status
+            enc  = str(r.get('Status','')).strip() in ['Finalizado','Cancelado']
+            secs = int((f-c).total_seconds()) if (pd.notna(f) and f<=cut) else int((cut-c).total_seconds())
+            at   = secs>=sla_s
+            if enc or not at: continue  # só abertos em atraso
+            
+            dias_atraso = secs // 86400
+            horas_rest  = (secs % 86400) // 3600
+            tempo_str   = str(dias_atraso) + 'd ' + str(horas_rest) + 'h em atraso'
+            
+            detail_rows.append({
+                'Código':        str(r['Código']),
+                'Tipo':          str(r['Tipo']),
+                'Status':        str(r['Status']),
+                'Atribuição':    get_bko(r),
+                'Criado em':     r['_CriadoTS'].strftime('%d/%m/%Y') if pd.notna(r['_CriadoTS']) else '-',
+                'Tempo em atraso': tempo_str,
+                'Dias úteis':    str(r.get('Tempo em Aberto (Dias Úteis)','-')),
+                'Valor':         str(r['Valor Total']) if str(r['Valor Total']) not in ['-','nan'] else '-',
+            })
+        
+        df_detail = pd.DataFrame(detail_rows)
+        
+        n_total = len(df_detail)
+        valor_total = sum(r['_Valor'] for _, r in data[data['_Fornecedora']==forn_sel].iterrows()
+                          if str(r.get('_Valor',0)) != 'nan')
+        
+        st.markdown(
+            '<div style="background:#141414;border:1px solid #1e1e1e;border-radius:10px;padding:16px;margin-top:12px;">'
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+            '<div>'
+            '<span style="font-size:15px;font-weight:700;color:#e0e0e0">' + forn_sel + '</span>'
+            '<span style="font-size:12px;color:#ef5350;margin-left:10px;font-weight:600">' + str(n_total) + ' tickets em atraso</span>'
+            '</div></div>',
             unsafe_allow_html=True)
-    else:
-        st.info('Adicione mais de uma planilha para ver a evolução.')
-
-
-st.markdown('<br><div style="text-align:right;font-size:10px;color:#2a2a2a">iGreen Energy · Setor Inadimplencia Comercial</div>', unsafe_allow_html=True)
+        
+        if len(df_detail) > 0:
+            # Tabela de detalhe
+            det_tbl = (
+                '<table class="igt"><thead><tr>'
+                '<th style="text-align:left">Código</th>'
+                '<th style="text-align:left">Tipo</th>'
+                '<th>Status</th>'
+                '<th>Atribuição</th>'
+                '<th>Criado em</th>'
+                '<th>Tempo em atraso</th>'
+                '<th>Dias úteis</th>'
+                '<th>Valor</th>'
+                '</tr></thead><tbody>'
+            )
+            for _, row in df_detail.iterrows():
+                atrib_color = '#5aad7e' if row['Atribuição'] != '-' else '#ef5350'
+                det_tbl += (
+                    '<tr class="dr" style="display:table-row">'
+                    '<td style="text-align:left;color:#42a5f5;font-weight:600">' + row['Código'] + '</td>'
+                    '<td style="text-align:left;color:#ccc">' + row['Tipo'] + '</td>'
+                    '<td style="color:#aaa">' + row['Status'] + '</td>'
+                    '<td style="color:' + atrib_color + ';font-weight:500">' + row['Atribuição'] + '</td>'
+                    '<td style="color:#888">' + row['Criado em'] + '</td>'
+                    '<td style="color:#ef5350;font-weight:600">' + row['Tempo em atraso'] + '</td>'
+                    '<td style="color:#888">' + row['Dias úteis'] + '</td>'
+                    '<td style="color:#5aad7e;font-weight:500">' + row['Valor'] + '</td>'
+                    '</tr>'
+                )
+            det_tbl += '</tbody></table>'
+            st.markdown(det_tbl, unsafe_allow_html=True)
+            
+            # Botão de download Excel
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_detail.to_excel(writer, index=False, sheet_name='Tickets em Atraso')
+            output.seek(0)
+            st.download_button(
+                label='Baixar Excel — ' + forn_sel,
+                data=output,
+                file_name='Atraso_' + forn_sel.replace(' ','_') + '.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                key='dl_'+forn_sel
+            )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    
+    
+    
+    
+    # ── ANÁLISE DE EVOLUÇÃO (controlada pelo toggle do sidebar)
+    if ver_evolucao:
+        st.divider()
+        st.markdown('<div class="sec-label">Análise de evolução — tickets em atraso por período</div>', unsafe_allow_html=True)
+    
+        @st.cache_data
+        def calc_evolucao(planilhas_keys):
+            resultados = []
+            for label in planilhas_keys:
+                filepath = planilhas[label]
+                try:
+                    xl = pd.ExcelFile(filepath)
+                    sheets = [s for s in xl.sheet_names if s != 'Resumo por Tipo']
+                    dfs = []
+                    for sheet in sheets:
+                        df = pd.read_excel(filepath, sheet_name=sheet)
+                        forn = sheet.replace('Tickets - ','')
+                        df['_Fornecedora'] = forn
+                        df['_Familia'] = FAMILIA_MAP.get(forn,'Outros')
+                        dfs.append(df)
+                    d = pd.concat(dfs, ignore_index=True)
+                    d['_Valor'] = d['Valor Total'].apply(parse_valor)
+                    d['_CriadoTS'] = pd.to_datetime(d['Criado Em'], errors='coerce')
+                    d['_FinalizadoTS'] = pd.to_datetime(d['Data Finalização'], errors='coerce')
+                    cut = d['_CriadoTS'].max()
+                    sla_s = SLA_DAYS * 24 * 3600
+                    total_at = 0; valor_at = 0.0
+                    for _, r in d[d['_CriadoTS']<=cut].iterrows():
+                        c=r['_CriadoTS']; f=r['_FinalizadoTS']
+                        enc = str(r.get('Status','')).strip() in ['Finalizado','Cancelado']
+                        secs = int((f-c).total_seconds()) if (pd.notna(f) and f<=cut) else int((cut-c).total_seconds())
+                        if not enc and secs>=sla_s:
+                            total_at += 1
+                            valor_at += float(r['_Valor'])
+                    resultados.append({'Data': label, 'Em Atraso': total_at, 'Valor em Atraso': valor_at})
+                except:
+                    pass
+            return pd.DataFrame(resultados)
+    
+        df_evo = calc_evolucao(tuple(sorted(planilhas.keys())))
+    
+        if len(df_evo) >= 2:
+            import plotly.graph_objects as go
+    
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=df_evo['Data'], y=df_evo['Em Atraso'],
+                mode='lines+markers+text',
+                name='Tickets em atraso',
+                line={'color':'#ef5350','width':2},
+                marker={'size':8,'color':'#ef5350'},
+                text=[str(v) for v in df_evo['Em Atraso']],
+                textposition='top center',
+                textfont={'color':'#ef5350','size':12},
+            ))
+            fig.add_trace(go.Scatter(
+                x=df_evo['Data'], y=df_evo['Valor em Atraso'],
+                mode='lines+markers',
+                name='Valor em atraso (R$)',
+                line={'color':'#5aad7e','width':2,'dash':'dot'},
+                marker={'size':8,'color':'#5aad7e'},
+                yaxis='y2'
+            ))
+            fig.update_layout(
+                paper_bgcolor='#0f0f0f',
+                plot_bgcolor='#141414',
+                height=300,
+                margin={'l':20,'r':60,'t':20,'b':20},
+                legend={'orientation':'h','x':0,'y':1.12,'font':{'color':'#888','size':11},'bgcolor':'rgba(0,0,0,0)'},
+                xaxis={'gridcolor':'#1e1e1e','linecolor':'#252525','tickfont':{'color':'#888','size':12}},
+                yaxis={'title':'Tickets','titlefont':{'color':'#ef5350','size':11},'tickfont':{'color':'#ef5350','size':11},'gridcolor':'#1a1a1a'},
+                yaxis2={'title':'Valor (R$)','titlefont':{'color':'#5aad7e','size':11},'tickfont':{'color':'#5aad7e','size':11},'overlaying':'y','side':'right','showgrid':False},
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
+            # Variação
+            var = int(df_evo['Em Atraso'].iloc[-1]) - int(df_evo['Em Atraso'].iloc[-2])
+            sinal = '+' if var > 0 else ''
+            cor = '#ef5350' if var > 0 else '#5aad7e'
+            st.markdown(
+                '<div style="background:#141414;border:1px solid #1e1e1e;border-radius:8px;padding:12px 16px;display:flex;gap:32px;">'
+                '<div><span style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.06em">Variação</span><br>'
+                '<span style="font-size:20px;font-weight:700;color:' + cor + '">' + sinal + str(var) + ' tickets</span></div>'
+                '<div><span style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.06em">Última base</span><br>'
+                '<span style="font-size:16px;font-weight:600;color:#ccc">' + str(df_evo["Data"].iloc[-1]) + '</span></div>'
+                '<div><span style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.06em">Total em atraso</span><br>'
+                '<span style="font-size:20px;font-weight:700;color:#ef5350">' + str(df_evo["Em Atraso"].iloc[-1]) + '</span></div>'
+                '</div>',
+                unsafe_allow_html=True)
+        else:
+            st.info('Adicione mais de uma planilha para ver a evolução.')
+    
+    
+    st.markdown('<br><div style="text-align:right;font-size:10px;color:#2a2a2a">iGreen Energy · Setor Inadimplencia Comercial</div>', unsafe_allow_html=True)
