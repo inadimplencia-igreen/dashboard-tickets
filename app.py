@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import re
@@ -230,6 +229,9 @@ with st.sidebar:
             st.session_state.expanded = set()
             st.rerun()
 
+    st.divider()
+    st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Análise</p>', unsafe_allow_html=True)
+    ver_evolucao = st.toggle('Evolução por período', value=False)
     st.divider()
     st.markdown('**Atualizar:**\nSuba em `dados/` no GitHub:\n`Tickets_DDmesAAAA.xlsx`')
     st.divider()
@@ -551,132 +553,99 @@ if st.session_state.detail_forn:
 
 
 
-# ── ANÁLISE DE EVOLUÇÃO POR PERÍODO
-st.divider()
-st.markdown('<div class="sec-label">Análise de evolução — tickets em atraso por período</div>', unsafe_allow_html=True)
 
-# Calcular métricas para cada planilha disponível
-@st.cache_data
-def calc_evolucao(planilhas_dict):
-    resultados = []
-    for label, filepath in planilhas_dict.items():
-        try:
-            xl = pd.ExcelFile(filepath)
-            sheets = [s for s in xl.sheet_names if s != 'Resumo por Tipo']
-            dfs = []
-            for sheet in sheets:
-                df = pd.read_excel(filepath, sheet_name=sheet)
-                forn = sheet.replace('Tickets - ','')
-                df['_Fornecedora'] = forn
-                df['_Familia'] = FAMILIA_MAP.get(forn,'Outros')
-                dfs.append(df)
-            d = pd.concat(dfs, ignore_index=True)
-            d['_Valor'] = d['Valor Total'].apply(parse_valor)
-            d['_CriadoTS'] = pd.to_datetime(d['Criado Em'], errors='coerce')
-            d['_FinalizadoTS'] = pd.to_datetime(d['Data Finalização'], errors='coerce')
-            cut = d['_CriadoTS'].max()
-            sla_s = SLA_DAYS * 24 * 3600
-            total_at = 0; valor_at = 0.0
-            for fam in ['Energizados','AZA','iVolt']:
-                for _, r in d[(d['_Familia']==fam) & (d['_CriadoTS']<=cut)].iterrows():
+
+# ── ANÁLISE DE EVOLUÇÃO (controlada pelo toggle do sidebar)
+if ver_evolucao:
+    st.divider()
+    st.markdown('<div class="sec-label">Análise de evolução — tickets em atraso por período</div>', unsafe_allow_html=True)
+
+    @st.cache_data
+    def calc_evolucao(planilhas_keys):
+        resultados = []
+        for label in planilhas_keys:
+            filepath = planilhas[label]
+            try:
+                xl = pd.ExcelFile(filepath)
+                sheets = [s for s in xl.sheet_names if s != 'Resumo por Tipo']
+                dfs = []
+                for sheet in sheets:
+                    df = pd.read_excel(filepath, sheet_name=sheet)
+                    forn = sheet.replace('Tickets - ','')
+                    df['_Fornecedora'] = forn
+                    df['_Familia'] = FAMILIA_MAP.get(forn,'Outros')
+                    dfs.append(df)
+                d = pd.concat(dfs, ignore_index=True)
+                d['_Valor'] = d['Valor Total'].apply(parse_valor)
+                d['_CriadoTS'] = pd.to_datetime(d['Criado Em'], errors='coerce')
+                d['_FinalizadoTS'] = pd.to_datetime(d['Data Finalização'], errors='coerce')
+                cut = d['_CriadoTS'].max()
+                sla_s = SLA_DAYS * 24 * 3600
+                total_at = 0; valor_at = 0.0
+                for _, r in d[d['_CriadoTS']<=cut].iterrows():
                     c=r['_CriadoTS']; f=r['_FinalizadoTS']
                     enc = str(r.get('Status','')).strip() in ['Finalizado','Cancelado']
                     secs = int((f-c).total_seconds()) if (pd.notna(f) and f<=cut) else int((cut-c).total_seconds())
                     if not enc and secs>=sla_s:
                         total_at += 1
                         valor_at += float(r['_Valor'])
-            resultados.append({'Data': label, 'Em Atraso': total_at, 'Valor em Atraso': valor_at})
-        except:
-            pass
-    return pd.DataFrame(resultados)
+                resultados.append({'Data': label, 'Em Atraso': total_at, 'Valor em Atraso': valor_at})
+            except:
+                pass
+        return pd.DataFrame(resultados)
 
-if len(planilhas) >= 1:
-    df_evo = calc_evolucao(planilhas)
-    
+    df_evo = calc_evolucao(tuple(sorted(planilhas.keys())))
+
     if len(df_evo) >= 2:
+        import plotly.graph_objects as go
+
         fig = go.Figure()
-        
-        # Linha de tickets em atraso
         fig.add_trace(go.Scatter(
             x=df_evo['Data'], y=df_evo['Em Atraso'],
             mode='lines+markers+text',
             name='Tickets em atraso',
-            line=dict(color='#ef5350', width=2),
-            marker=dict(size=8, color='#ef5350'),
-            text=df_evo['Em Atraso'],
+            line={'color':'#ef5350','width':2},
+            marker={'size':8,'color':'#ef5350'},
+            text=[str(v) for v in df_evo['Em Atraso']],
             textposition='top center',
-            textfont=dict(color='#ef5350', size=12),
-            yaxis='y1'
+            textfont={'color':'#ef5350','size':12},
         ))
-        
-        # Linha de valor em atraso
         fig.add_trace(go.Scatter(
             x=df_evo['Data'], y=df_evo['Valor em Atraso'],
-            mode='lines+markers+text',
+            mode='lines+markers',
             name='Valor em atraso (R$)',
-            line=dict(color='#5aad7e', width=2, dash='dot'),
-            marker=dict(size=8, color='#5aad7e'),
-            text=df_evo['Valor em Atraso'].apply(lambda v: fmt_r(v) if v>0 else ''),
-            textposition='bottom center',
-            textfont=dict(color='#5aad7e', size=10),
+            line={'color':'#5aad7e','width':2,'dash':'dot'},
+            marker={'size':8,'color':'#5aad7e'},
             yaxis='y2'
         ))
-        
         fig.update_layout(
             paper_bgcolor='#0f0f0f',
             plot_bgcolor='#141414',
-            font=dict(color='#aaa', family='Inter'),
-            height=320,
-            margin=dict(l=20, r=20, t=30, b=20),
-            legend=dict(
-                orientation='h', x=0, y=1.1,
-                font=dict(color='#888', size=11),
-                bgcolor='rgba(0,0,0,0)'
-            ),
-            xaxis=dict(
-                gridcolor='#1e1e1e', linecolor='#252525',
-                tickfont=dict(color='#888', size=12)
-            ),
-            yaxis=dict(
-                title='Tickets em atraso',
-                titlefont=dict(color='#ef5350', size=11),
-                tickfont=dict(color='#ef5350', size=11),
-                gridcolor='#1a1a1a', linecolor='#252525',
-            ),
-            yaxis2=dict(
-                title='Valor em atraso (R$)',
-                titlefont=dict(color='#5aad7e', size=11),
-                tickfont=dict(color='#5aad7e', size=11),
-                overlaying='y', side='right',
-                gridcolor='#1a1a1a', showgrid=False,
-            ),
-            hovermode='x unified',
+            height=300,
+            margin={'l':20,'r':60,'t':20,'b':20},
+            legend={'orientation':'h','x':0,'y':1.12,'font':{'color':'#888','size':11},'bgcolor':'rgba(0,0,0,0)'},
+            xaxis={'gridcolor':'#1e1e1e','linecolor':'#252525','tickfont':{'color':'#888','size':12}},
+            yaxis={'title':'Tickets','titlefont':{'color':'#ef5350','size':11},'tickfont':{'color':'#ef5350','size':11},'gridcolor':'#1a1a1a'},
+            yaxis2={'title':'Valor (R$)','titlefont':{'color':'#5aad7e','size':11},'tickfont':{'color':'#5aad7e','size':11},'overlaying':'y','side':'right','showgrid':False},
         )
         st.plotly_chart(fig, use_container_width=True)
-        
-        # Tabela resumo da evolução
-        df_evo_show = df_evo.copy()
-        df_evo_show['Valor em Atraso'] = df_evo_show['Valor em Atraso'].apply(fmt_r)
-        if len(df_evo) >= 2:
-            var_tickets = df_evo['Em Atraso'].iloc[-1] - df_evo['Em Atraso'].iloc[-2]
-            sinal = '+' if var_tickets > 0 else ''
-            cor = '#ef5350' if var_tickets > 0 else '#5aad7e'
-            st.markdown(
-                '<div style="background:#141414;border:1px solid #1e1e1e;border-radius:8px;'
-                'padding:12px 16px;display:flex;gap:32px;align-items:center;">'
-                '<div><span style="font-size:10px;color:#666;text-transform:uppercase;'
-                'letter-spacing:.06em">Variação (último período)</span><br>'
-                '<span style="font-size:20px;font-weight:700;color:' + cor + '">' + sinal + str(var_tickets) + ' tickets</span></div>'
-                '<div><span style="font-size:10px;color:#666;text-transform:uppercase;'
-                'letter-spacing:.06em">Última base</span><br>'
-                '<span style="font-size:16px;font-weight:600;color:#ccc">' + df_evo["Data"].iloc[-1] + '</span></div>'
-                '<div><span style="font-size:10px;color:#666;text-transform:uppercase;'
-                'letter-spacing:.06em">Total em atraso</span><br>'
-                '<span style="font-size:20px;font-weight:700;color:#ef5350">' + str(df_evo["Em Atraso"].iloc[-1]) + '</span></div>'
-                '</div>',
-                unsafe_allow_html=True)
+
+        # Variação
+        var = int(df_evo['Em Atraso'].iloc[-1]) - int(df_evo['Em Atraso'].iloc[-2])
+        sinal = '+' if var > 0 else ''
+        cor = '#ef5350' if var > 0 else '#5aad7e'
+        st.markdown(
+            '<div style="background:#141414;border:1px solid #1e1e1e;border-radius:8px;padding:12px 16px;display:flex;gap:32px;">'
+            '<div><span style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.06em">Variação</span><br>'
+            '<span style="font-size:20px;font-weight:700;color:' + cor + '">' + sinal + str(var) + ' tickets</span></div>'
+            '<div><span style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.06em">Última base</span><br>'
+            '<span style="font-size:16px;font-weight:600;color:#ccc">' + str(df_evo["Data"].iloc[-1]) + '</span></div>'
+            '<div><span style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.06em">Total em atraso</span><br>'
+            '<span style="font-size:20px;font-weight:700;color:#ef5350">' + str(df_evo["Em Atraso"].iloc[-1]) + '</span></div>'
+            '</div>',
+            unsafe_allow_html=True)
     else:
-        st.info('Adicione mais de uma planilha para ver a evolução ao longo do tempo.')
+        st.info('Adicione mais de uma planilha para ver a evolução.')
 
 
 st.markdown('<br><div style="text-align:right;font-size:10px;color:#2a2a2a">iGreen Energy · Setor Inadimplencia Comercial</div>', unsafe_allow_html=True)
