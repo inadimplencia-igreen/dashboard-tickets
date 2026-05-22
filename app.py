@@ -37,6 +37,7 @@ hr{border-color:#1e1e1e!important;}
 .card-alert::before{background:#c62828;}
 .card-total::before{background:#2e7d52;}
 .card-cancel::before{background:#555;}
+.card-motivo::before{background:#7b1fa2;}
 .card-fam{font-size:11px;font-weight:600;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;}
 .card-num{font-size:34px;font-weight:800;line-height:1;margin-bottom:10px;}
 .num-red{color:#ef5350;}.num-grn{color:#5aad7e;}.num-gray{color:#666;}
@@ -56,6 +57,12 @@ hr{border-color:#1e1e1e!important;}
 .t5-med{font-weight:500;color:#42a5f5;}
 .bar-bg{background:#1e1e1e;border-radius:3px;height:3px;margin-top:10px;}
 .bar-fg{height:100%;border-radius:3px;background:#c62828;}
+.mot-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 0;border-top:1px solid #1e1e1e;}
+.mot-rank{font-size:10px;font-weight:700;color:#7b1fa2;margin-right:8px;min-width:16px;}
+.mot-name{color:#ccc;flex:1;}
+.mot-n{font-weight:700;color:#ce93d8;}
+.mot-bar-bg{background:#1e1e1e;border-radius:3px;height:3px;margin-top:4px;}
+.mot-bar-fg{height:100%;border-radius:3px;background:#7b1fa2;}
 table.igt{width:100%;border-collapse:collapse;font-size:13px;}
 table.igt thead tr{border-bottom:1px solid #252525;}
 table.igt th{padding:10px 8px;font-size:11px;font-weight:600;color:#888;text-align:center;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;}
@@ -89,36 +96,31 @@ table.igt tr.tr td{background:#162516;font-weight:700;font-size:13px;border-top:
 """, unsafe_allow_html=True)
 
 def normalizar(s):
-    """Remove acentos, espaços extras e converte pra maiúsculo para comparação."""
     s = str(s).strip().upper()
     s = unicodedata.normalize('NFKD', s)
     s = ''.join(c for c in s if not unicodedata.combining(c))
     return s
 
-# Mapa de normalizado -> família
 FAMILIA_MAP_NORM = {
-    normalizar('COMERC'):            'Energizados',
-    normalizar('THOPEN'):            'Energizados',
-    normalizar('VANTAGE'):           'AZA',
+    normalizar('COMERC'):             'Energizados',
+    normalizar('THOPEN'):             'Energizados',
+    normalizar('VANTAGE'):            'AZA',
     normalizar('MATO GROSSO ENERGIA'):'AZA',
-    normalizar('COTESA-MOVE'):       'AZA',
-    normalizar('SUNCLICK'):          'AZA',
-    normalizar('FARO'):              'AZA',
-    normalizar('ULTRA'):             'AZA',
-    normalizar('ATUA'):              'AZA',
-    normalizar('REENERGISA'):        'AZA',
-    normalizar('GEDISA'):            'AZA',
-    normalizar('SUNNE'):             'iVolt',
-    normalizar('SOLATIO'):           'iVolt',
-    normalizar('EDP'):               'iVolt',
-    normalizar('FIT'):               'iVolt',
-    normalizar('GV'):                'iVolt',
-    normalizar('BC'):                'iVolt',
-    normalizar('MATRIX'):            'iVolt',
+    normalizar('COTESA-MOVE'):        'AZA',
+    normalizar('SUNCLICK'):           'AZA',
+    normalizar('FARO'):               'AZA',
+    normalizar('ULTRA'):              'AZA',
+    normalizar('ATUA'):               'AZA',
+    normalizar('REENERGISA'):         'AZA',
+    normalizar('GEDISA'):             'AZA',
+    normalizar('SUNNE'):              'iVolt',
+    normalizar('SOLATIO'):            'iVolt',
+    normalizar('EDP'):                'iVolt',
+    normalizar('FIT'):                'iVolt',
+    normalizar('GV'):                 'iVolt',
+    normalizar('BC'):                 'iVolt',
+    normalizar('MATRIX'):             'iVolt',
 }
-
-# Mapa nome original -> família (preenchido dinamicamente no load_data)
-FORN_FAMILIA_REAL = {}
 
 FAM_BADGE = {'Energizados':'be','AZA':'ba','iVolt':'bi'}
 FAM_T5    = {'Energizados':'f-e','AZA':'f-a','iVolt':'f-i'}
@@ -129,7 +131,7 @@ SETORES_VALIDOS = [
     'Suporte ao Cliente',
     'Meet Call',
     'Experiência do Cliente',
-    'Ouvidoria',
+    'ReclameAQUI',
 ]
 
 def parse_valor(v):
@@ -167,7 +169,7 @@ def listar_planilhas():
 @st.cache_data
 def load_data(filepath):
     xl = pd.ExcelFile(filepath)
-    sheets = [s for s in xl.sheet_names if s != 'Resumo por Tipo']
+    sheets = [s for s in xl.sheet_names if s.startswith('Tickets - ')]
     dfs = []
     for sheet in sheets:
         df = pd.read_excel(filepath, sheet_name=sheet)
@@ -175,7 +177,6 @@ def load_data(filepath):
         familia = get_familia(forn)
         df['_Fornecedora'] = forn
         df['_Familia']     = familia
-        FORN_FAMILIA_REAL[forn] = familia
         dfs.append(df)
     data = pd.concat(dfs, ignore_index=True)
     bko_cols = [c for c in data.columns if c.startswith('BKO') and 'Atribuido em' not in c and 'Atribuído em' not in c]
@@ -193,10 +194,8 @@ def load_data(filepath):
             data[dest] = data[col].apply(lambda x: str(x).strip() if str(x).strip() not in ['-','nan',''] else '-')
         else:
             data[dest] = '-'
-    if 'Setor' in data.columns:
-        data['_Setor'] = data['Setor'].apply(lambda x: str(x).strip() if pd.notna(x) else '')
-    else:
-        data['_Setor'] = ''
+    data['_Setor'] = data['Setor'].apply(lambda x: str(x).strip() if pd.notna(x) else '') if 'Setor' in data.columns else ''
+    data['_Tipo']  = data['Tipo'].apply(lambda x: str(x).strip() if pd.notna(x) else '-') if 'Tipo' in data.columns else '-'
     return data
 
 def get_medias(data, forn):
@@ -214,7 +213,7 @@ def calc_on_date(data, cutoff_date):
         status = str(r.get('Status','')).strip()
         if status == 'Cancelado':
             rows.append({
-                'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],
+                'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],'Tipo':r['_Tipo'],
                 'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
                 'Atraso':False,'NoPrazo':False,'EncAtraso':False,'EncPrazo':False,'Cancelado':True,
             })
@@ -224,7 +223,7 @@ def calc_on_date(data, cutoff_date):
         if enc:
             if pd.isna(f) or f > cut:
                 rows.append({
-                    'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],
+                    'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],'Tipo':r['_Tipo'],
                     'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
                     'Atraso':False,'NoPrazo':False,'EncAtraso':False,'EncPrazo':True,'Cancelado':False,
                 })
@@ -232,7 +231,7 @@ def calc_on_date(data, cutoff_date):
                 secs = int((f-c).total_seconds())
                 at   = secs >= sla_s
                 rows.append({
-                    'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],
+                    'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],'Tipo':r['_Tipo'],
                     'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
                     'Atraso':False,'NoPrazo':False,'EncAtraso':at,'EncPrazo':not at,'Cancelado':False,
                 })
@@ -240,7 +239,7 @@ def calc_on_date(data, cutoff_date):
             secs = int((cut-c).total_seconds())
             at   = secs >= sla_s
             rows.append({
-                'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],
+                'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],'Tipo':r['_Tipo'],
                 'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
                 'Atraso':at,'NoPrazo':not at,'EncAtraso':False,'EncPrazo':False,'Cancelado':False,
             })
@@ -269,13 +268,45 @@ def cel(n,v,cls):
     inner = '<span class="z">—</span>' if n==0 else str(n)
     return '<td class="' + cls + '">' + inner + vs + '</td>'
 
+def render_top_motivos(tickets):
+    """Renderiza cards de Top 3 motivos por família."""
+    st.markdown('<div class="sec-label">Top 3 motivos de abertura por família</div>', unsafe_allow_html=True)
+    cols = st.columns(3)
+    fam_cores = {'Energizados':'#5aad7e','AZA':'#ffa726','iVolt':'#42a5f5'}
+    for i, fam in enumerate(['Energizados','AZA','iVolt']):
+        ft = tickets[(tickets['Familia']==fam) & (~tickets['Cancelado'])]
+        top3 = ft['Tipo'].value_counts().head(3)
+        max_n = int(top3.max()) if len(top3) > 0 else 1
+        cor = fam_cores[fam]
+        badge = FAM_BADGE[fam]
+        html = (
+            '<div class="card card-motivo" style="--mot-cor:' + cor + ';border-top-color:' + cor + '">'
+            '<div class="card-fam"><span class="badge ' + badge + '">' + fam + '</span></div>'
+        )
+        for rank, (tipo, n) in enumerate(top3.items(), 1):
+            pct_bar = int(n / max_n * 100)
+            html += (
+                '<div class="mot-row">'
+                '<span class="mot-rank">' + str(rank) + 'º</span>'
+                '<div style="flex:1">'
+                '<div style="display:flex;justify-content:space-between">'
+                '<span class="mot-name">' + str(tipo) + '</span>'
+                '<span class="mot-n">' + str(n) + '</span>'
+                '</div>'
+                '<div class="mot-bar-bg"><div class="mot-bar-fg" style="width:' + str(pct_bar) + '%;background:' + cor + '"></div></div>'
+                '</div></div>'
+            )
+        if len(top3) == 0:
+            html += '<div style="color:#444;font-size:12px;padding:8px 0">Sem dados</div>'
+        html += '</div>'
+        with cols[i]:
+            st.markdown(html, unsafe_allow_html=True)
+
 def render_dashboard(tickets, data, titulo, subtitulo):
     m          = agg(tickets)
     total      = m['total']
     cancelados = int(tickets['Cancelado'].sum())
 
-    # Detecta famílias e fornecedoras presentes nos tickets
-    fams_presentes = tickets['Familia'].unique().tolist()
     forn_por_fam = {}
     for fam in ['Energizados','AZA','iVolt']:
         forns = sorted(tickets[tickets['Familia']==fam]['Fornecedora'].unique().tolist())
@@ -302,7 +333,6 @@ def render_dashboard(tickets, data, titulo, subtitulo):
     cols = st.columns(5)
     for i, fam in enumerate(['Energizados','AZA','iVolt']):
         fd = fam_data[fam]; fm = fd['m']
-        sub_lbl = 'Maior atraso'
         sub_val = fd['maior'] + ' (' + str(fd['maior_n']) + ')' if fd['maior'] != '-' else '-'
         with cols[i]:
             st.markdown(
@@ -311,7 +341,7 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                 '<div class="card-num num-red">' + str(fm['atraso_n']) + '</div>'
                 '<div class="card-row"><span class="c-lbl">Atribuído (BKO)</span><span class="c-red">' + str(fm['atr_atrib']) + '</span></div>'
                 '<div class="card-row"><span class="c-lbl">Não atribuído</span><span class="c-val">' + str(fm['atr_natrib']) + '</span></div>'
-                '<div class="card-row"><span class="c-lbl">' + sub_lbl + '</span><span class="c-val">' + sub_val + '</span></div>'
+                '<div class="card-row"><span class="c-lbl">Maior atraso</span><span class="c-val">' + sub_val + '</span></div>'
                 '<div class="card-row"><span class="c-lbl">Valor em atraso</span><span class="c-val">' + fmt_r(fm['atraso_v']) + '</span></div>'
                 '<div class="card-hl"><span class="hl-lbl">Valor total família</span><span class="hl-val">' + fmt_r(fm['valor']) + '</span></div>'
                 '</div>', unsafe_allow_html=True)
@@ -339,7 +369,12 @@ def render_dashboard(tickets, data, titulo, subtitulo):
 
     st.divider()
 
-    # Top 5
+    # Top 3 motivos
+    render_top_motivos(tickets)
+
+    st.divider()
+
+    # Top 5 fornecedoras
     st.markdown('<div class="sec-label">Top 5 fornecedoras em atraso</div>', unsafe_allow_html=True)
     top5 = (tickets[tickets['Atraso']]
             .groupby(['Fornecedora','Familia'])
@@ -387,17 +422,18 @@ def render_dashboard(tickets, data, titulo, subtitulo):
         st.session_state[exp_key] = set()
 
     fams_com_dados = [f for f in ['Energizados','AZA','iVolt'] if f in forn_por_fam]
-    exp_cols = st.columns(len(fams_com_dados)) if fams_com_dados else st.columns(1)
-    for i, fam in enumerate(fams_com_dados):
-        with exp_cols[i]:
-            is_open = fam in st.session_state[exp_key]
-            if st.button(('Recolher ' if is_open else 'Expandir ') + fam,
-                         key='exp_'+fam+'_'+subtitulo.replace(' ','_'),
-                         type='primary' if is_open else 'secondary',
-                         use_container_width=True):
-                if is_open: st.session_state[exp_key].discard(fam)
-                else:       st.session_state[exp_key].add(fam)
-                st.rerun()
+    if fams_com_dados:
+        exp_cols = st.columns(len(fams_com_dados))
+        for i, fam in enumerate(fams_com_dados):
+            with exp_cols[i]:
+                is_open = fam in st.session_state[exp_key]
+                if st.button(('Recolher ' if is_open else 'Expandir ') + fam,
+                             key='exp_'+fam+'_'+subtitulo.replace(' ','_'),
+                             type='primary' if is_open else 'secondary',
+                             use_container_width=True):
+                    if is_open: st.session_state[exp_key].discard(fam)
+                    else:       st.session_state[exp_key].add(fam)
+                    st.rerun()
 
     keys_n = ['atr_prazo','atr_atraso','nat_prazo','nat_atraso','enc_prazo','enc_atraso']
     keys_v = ['atr_prazo_v','atr_atraso_v','nat_prazo_v','nat_atraso_v','enc_prazo_v','enc_atraso_v']
@@ -461,19 +497,22 @@ def render_dashboard(tickets, data, titulo, subtitulo):
         forns_com_atraso = [f for f in forn_por_fam.get(fam,[])
                             if len(tickets[(tickets['Fornecedora']==f) & tickets['Atraso']]) > 0]
         if not forns_com_atraso: continue
-        badge_cls = FAM_BADGE.get(fam,'be')
-        st.markdown('<span class="badge ' + badge_cls + '" style="font-size:11px;padding:3px 10px">' + fam + '</span>', unsafe_allow_html=True)
-        btn_row = st.columns(min(len(forns_com_atraso), 6))
-        for i, forn in enumerate(forns_com_atraso):
-            n_atraso = len(tickets[(tickets['Fornecedora']==forn) & tickets['Atraso']])
-            with btn_row[i]:
-                ativo = st.session_state[det_key] == forn
-                if st.button(forn + ' (' + str(n_atraso) + ')',
-                             key='det_'+forn+'_'+subtitulo.replace(' ','_'),
-                             type='primary' if ativo else 'secondary',
-                             use_container_width=True):
-                    st.session_state[det_key] = None if ativo else forn
-                    st.rerun()
+        st.markdown('<span class="badge ' + FAM_BADGE.get(fam,'be') + '" style="font-size:11px;padding:3px 10px">' + fam + '</span>', unsafe_allow_html=True)
+        # divide em linhas de até 6 botões
+        chunk_size = 6
+        for chunk_start in range(0, len(forns_com_atraso), chunk_size):
+            chunk = forns_com_atraso[chunk_start:chunk_start+chunk_size]
+            btn_row = st.columns(len(chunk))
+            for i, forn in enumerate(chunk):
+                n_atraso = len(tickets[(tickets['Fornecedora']==forn) & tickets['Atraso']])
+                with btn_row[i]:
+                    ativo = st.session_state[det_key] == forn
+                    if st.button(forn + ' (' + str(n_atraso) + ')',
+                                 key='det_'+forn+'_'+subtitulo.replace(' ','_'),
+                                 type='primary' if ativo else 'secondary',
+                                 use_container_width=True):
+                        st.session_state[det_key] = None if ativo else forn
+                        st.rerun()
 
     if st.session_state[det_key]:
         forn_sel = st.session_state[det_key]
@@ -488,7 +527,6 @@ def render_dashboard(tickets, data, titulo, subtitulo):
 
         cut   = pd.Timestamp(data['_CriadoTS'].max().date()).replace(hour=23,minute=59,second=59)
         sla_s = SLA_DAYS*24*3600
-
         base_forn = data[data['_Fornecedora']==forn_sel]
         if subtitulo != 'Consolidado — todos os setores':
             base_forn = base_forn[base_forn['_Setor']==subtitulo]
@@ -515,7 +553,6 @@ def render_dashboard(tickets, data, titulo, subtitulo):
             })
 
         df_detail = pd.DataFrame(detail_rows)
-
         st.markdown(
             '<div style="background:#141414;border:1px solid #1e1e1e;border-radius:10px;padding:16px;margin-top:12px;">'
             '<div style="margin-bottom:12px;">'
@@ -526,11 +563,9 @@ def render_dashboard(tickets, data, titulo, subtitulo):
         if len(df_detail) > 0:
             det_tbl = (
                 '<table class="igt"><thead><tr>'
-                '<th style="text-align:left">Código</th>'
-                '<th style="text-align:left">Tipo</th>'
-                '<th>Status</th><th>Atribuição</th>'
-                '<th>Criado em</th><th>Tempo em atraso</th>'
-                '<th>Dias úteis</th><th>Valor</th>'
+                '<th style="text-align:left">Código</th><th style="text-align:left">Tipo</th>'
+                '<th>Status</th><th>Atribuição</th><th>Criado em</th>'
+                '<th>Tempo em atraso</th><th>Dias úteis</th><th>Valor</th>'
                 '</tr></thead><tbody>'
             )
             for _, row in df_detail.iterrows():
@@ -561,7 +596,6 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 key='dl_'+forn_sel+'_'+subtitulo.replace(' ','_')
             )
-
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<br><div style="text-align:right;font-size:10px;color:#2a2a2a">iGreen Energy · ' + subtitulo + '</div>', unsafe_allow_html=True)
@@ -642,7 +676,7 @@ if st.session_state.get('pagina') == 'evolucao':
                 filepath = planilhas[label]
                 try:
                     xl = pd.ExcelFile(filepath)
-                    sheets = [s for s in xl.sheet_names if s != 'Resumo por Tipo']
+                    sheets = [s for s in xl.sheet_names if s.startswith('Tickets - ')]
                     dfs = []
                     for sheet in sheets:
                         df = pd.read_excel(filepath, sheet_name=sheet)
@@ -651,10 +685,7 @@ if st.session_state.get('pagina') == 'evolucao':
                         df['_Familia'] = get_familia(forn)
                         dfs.append(df)
                     d = pd.concat(dfs, ignore_index=True)
-                    if 'Setor' in d.columns:
-                        d['_Setor'] = d['Setor'].apply(lambda x: str(x).strip() if pd.notna(x) else '')
-                    else:
-                        d['_Setor'] = ''
+                    d['_Setor'] = d['Setor'].apply(lambda x: str(x).strip() if pd.notna(x) else '') if 'Setor' in d.columns else ''
                     d = d[d['_Setor'].isin(SETORES_VALIDOS)]
                     d['_Valor'] = d['Valor Total'].apply(parse_valor)
                     d['_CriadoTS'] = pd.to_datetime(d['Criado Em'], errors='coerce')
@@ -673,10 +704,7 @@ if st.session_state.get('pagina') == 'evolucao':
                             if fam=='Energizados': en_at+=1
                             elif fam=='AZA': az_at+=1
                             elif fam=='iVolt': iv_at+=1
-                    resultados.append({
-                        'Data':label,'Em Atraso':total_at,'Valor em Atraso':valor_at,
-                        'Energizados':en_at,'AZA':az_at,'iVolt':iv_at
-                    })
+                    resultados.append({'Data':label,'Em Atraso':total_at,'Valor em Atraso':valor_at,'Energizados':en_at,'AZA':az_at,'iVolt':iv_at})
                 except:
                     pass
             return pd.DataFrame(resultados)
@@ -688,14 +716,10 @@ if st.session_state.get('pagina') == 'evolucao':
             sinal = '+' if var > 0 else ''
             cor = '#ef5350' if var > 0 else '#5aad7e'
             c1,c2,c3,c4 = st.columns(4)
-            with c1:
-                st.markdown('<div class="card card-total"><div class="card-fam">Variação período</div><div class="card-num" style="color:'+cor+'">'+sinal+str(var)+'</div><div class="card-row"><span class="c-lbl">'+df_evo["Data"].iloc[-2]+' → '+df_evo["Data"].iloc[-1]+'</span></div></div>', unsafe_allow_html=True)
-            with c2:
-                st.markdown('<div class="card card-alert"><div class="card-fam">Total atual</div><div class="card-num num-red">'+str(df_evo["Em Atraso"].iloc[-1])+'</div></div>', unsafe_allow_html=True)
-            with c3:
-                st.markdown('<div class="card card-alert"><div class="card-fam">Período anterior</div><div class="card-num num-red">'+str(df_evo["Em Atraso"].iloc[-2])+'</div></div>', unsafe_allow_html=True)
-            with c4:
-                st.markdown('<div class="card card-alert"><div class="card-fam">Valor em atraso atual</div><div class="card-num num-red" style="font-size:22px">'+fmt_r(df_evo["Valor em Atraso"].iloc[-1])+'</div></div>', unsafe_allow_html=True)
+            with c1: st.markdown('<div class="card card-total"><div class="card-fam">Variação período</div><div class="card-num" style="color:'+cor+'">'+sinal+str(var)+'</div><div class="card-row"><span class="c-lbl">'+df_evo["Data"].iloc[-2]+' → '+df_evo["Data"].iloc[-1]+'</span></div></div>', unsafe_allow_html=True)
+            with c2: st.markdown('<div class="card card-alert"><div class="card-fam">Total atual</div><div class="card-num num-red">'+str(df_evo["Em Atraso"].iloc[-1])+'</div></div>', unsafe_allow_html=True)
+            with c3: st.markdown('<div class="card card-alert"><div class="card-fam">Período anterior</div><div class="card-num num-red">'+str(df_evo["Em Atraso"].iloc[-2])+'</div></div>', unsafe_allow_html=True)
+            with c4: st.markdown('<div class="card card-alert"><div class="card-fam">Valor em atraso atual</div><div class="card-num num-red" style="font-size:22px">'+fmt_r(df_evo["Valor em Atraso"].iloc[-1])+'</div></div>', unsafe_allow_html=True)
 
             st.markdown('<div class="sec-label" style="margin-top:20px">Evolução total</div>', unsafe_allow_html=True)
             fig = go.Figure()
