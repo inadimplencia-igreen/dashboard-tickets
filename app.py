@@ -51,7 +51,7 @@ hr{border-color:#1e1e1e!important;}
 .f-a{background:#2b2200;color:#ffa726;border:1px solid #ffa72630;}
 .f-i{background:#00192b;color:#42a5f5;border:1px solid #42a5f530;}
 .t5-row{display:flex;justify-content:space-between;font-size:11px;padding:4px 0;border-top:1px solid #1e1e1e;}
-.t5-lbl{color:#888;}.t5-val{font-weight:600;color:#ef5350;}.t5-ok{color:#999;}
+.t5-lbl{color:#888;}.t5-val{font-weight:600;color:#ef5350;}
 .t5-med{font-weight:500;color:#42a5f5;}
 .bar-bg{background:#1e1e1e;border-radius:3px;height:3px;margin-top:10px;}
 .bar-fg{height:100%;border-radius:3px;background:#c62828;}
@@ -166,7 +166,6 @@ def load_data(filepath):
             data[dest] = data[col].apply(lambda x: str(x).strip() if str(x).strip() not in ['-','nan',''] else '-')
         else:
             data[dest] = '-'
-    # Normaliza coluna Setor
     if 'Setor' in data.columns:
         data['_Setor'] = data['Setor'].apply(lambda x: str(x).strip() if pd.notna(x) else '')
     else:
@@ -186,56 +185,41 @@ def calc_on_date(data, cutoff_date):
     rows  = []
     for _,r in data[data['_CriadoTS']<=cut].iterrows():
         status = str(r.get('Status','')).strip()
-        # Cancelado: registra separado, não entra em nenhum cálculo
         if status == 'Cancelado':
             rows.append({
-                'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],
-                'Setor':r['_Setor'],
+                'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],
                 'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
-                'Atraso':False,'NoPrazo':False,'EncAtraso':False,'EncPrazo':False,
-                'Cancelado':True,
+                'Atraso':False,'NoPrazo':False,'EncAtraso':False,'EncPrazo':False,'Cancelado':True,
             })
             continue
         c=r['_CriadoTS']; f=r['_FinalizadoTS']
-        # Finalizado: encerrado. Se sem data de finalização → encerrado no prazo
         enc = status == 'Finalizado'
         if enc:
             if pd.isna(f) or f > cut:
-                # sem data de finalização válida → encerrado no prazo
                 rows.append({
-                    'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],
-                    'Setor':r['_Setor'],
+                    'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],
                     'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
-                    'Atraso':False,'NoPrazo':False,'EncAtraso':False,'EncPrazo':True,
-                    'Cancelado':False,
+                    'Atraso':False,'NoPrazo':False,'EncAtraso':False,'EncPrazo':True,'Cancelado':False,
                 })
             else:
                 secs = int((f-c).total_seconds())
                 at   = secs >= sla_s
                 rows.append({
-                    'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],
-                    'Setor':r['_Setor'],
+                    'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],
                     'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
-                    'Atraso':False,'NoPrazo':False,
-                    'EncAtraso': at,'EncPrazo': not at,
-                    'Cancelado':False,
+                    'Atraso':False,'NoPrazo':False,'EncAtraso':at,'EncPrazo':not at,'Cancelado':False,
                 })
         else:
             secs = int((cut-c).total_seconds())
             at   = secs >= sla_s
             rows.append({
-                'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],
-                'Setor':r['_Setor'],
+                'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],
                 'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
-                'Atraso':    not enc and at,
-                'NoPrazo':   not enc and not at,
-                'EncAtraso': False,'EncPrazo': False,
-                'Cancelado': False,
+                'Atraso':at,'NoPrazo':not at,'EncAtraso':False,'EncPrazo':False,'Cancelado':False,
             })
     return pd.DataFrame(rows)
 
 def agg(df):
-    # Exclui cancelados de todos os cálculos
     df = df[~df['Cancelado']]
     def s(mask): return df[mask]['Valor'].sum() if mask.any() else 0
     ap=df['Atribuido']&df['NoPrazo']; aa=df['Atribuido']&df['Atraso']
@@ -258,82 +242,11 @@ def cel(n,v,cls):
     inner = '<span class="z">—</span>' if n==0 else str(n)
     return '<td class="' + cls + '">' + inner + vs + '</td>'
 
-# ── SIDEBAR
-with st.sidebar:
-    st.markdown('### iGreen Energy')
-    st.markdown('SLA de Tickets')
-    st.divider()
-
-    if 'pagina' not in st.session_state:
-        st.session_state.pagina = 'dashboard'
-
-    st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Base de dados</p>', unsafe_allow_html=True)
-
-    planilhas_sb = listar_planilhas()
-    datas_sb = list(planilhas_sb.keys()) if planilhas_sb else []
-    if 'data_sel' not in st.session_state and datas_sb:
-        st.session_state.data_sel = datas_sb[0]
-
-    for label in datas_sb:
-        ativo = st.session_state.get('data_sel') == label and st.session_state.pagina in ('dashboard', *SETORES_VALIDOS)
-        if st.button(label, key='sb_btn_'+label,
-                     type='primary' if ativo else 'secondary',
-                     use_container_width=True):
-            st.session_state.data_sel = label
-            if st.session_state.pagina not in ('dashboard', *SETORES_VALIDOS):
-                st.session_state.pagina = 'dashboard'
-            st.session_state.expanded = set()
-            st.rerun()
-
-    st.divider()
-    st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Visão geral</p>', unsafe_allow_html=True)
-
-    ativo_dash = st.session_state.pagina == 'dashboard'
-    if st.button('Inadimplência Comercial', key='btn_dashboard',
-                 type='primary' if ativo_dash else 'secondary',
-                 use_container_width=True):
-        st.session_state.pagina = 'dashboard'
-        st.session_state.expanded = set()
-        st.rerun()
-
-    st.divider()
-    st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Setores</p>', unsafe_allow_html=True)
-
-    for setor in SETORES_VALIDOS:
-        ativo_s = st.session_state.pagina == setor
-        if st.button(setor, key='btn_setor_'+setor,
-                     type='primary' if ativo_s else 'secondary',
-                     use_container_width=True):
-            st.session_state.pagina = setor
-            st.session_state.expanded = set()
-            st.rerun()
-
-    st.divider()
-    st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Análise</p>', unsafe_allow_html=True)
-
-    ativo_evo = st.session_state.pagina == 'evolucao'
-    if st.button('Evolução por período', key='btn_evolucao',
-                 type='primary' if ativo_evo else 'secondary',
-                 use_container_width=True):
-        st.session_state.pagina = 'evolucao'
-        st.rerun()
-
-    st.divider()
-    st.markdown('**Atualizar:**\nSuba em `dados/` no GitHub:\n`Tickets_DDmesAAAA.xlsx`')
-    st.divider()
-    st.caption('SLA: 3 dias úteis · 13 fornecedoras')
-
-# ── FUNÇÃO PRINCIPAL DO DASHBOARD (reutilizada para famílias e setores)
-def render_dashboard(tickets, data, titulo, subtitulo, modo='familias'):
-    """
-    modo='familias' → agrupa por Energizados/AZA/iVolt
-    modo='setor'    → agrupa por fornecedora direto (sem família fixa)
-    """
-    m     = agg(tickets)
-    total = m['total']
+def render_dashboard(tickets, data, titulo, subtitulo):
+    m          = agg(tickets)
+    total      = m['total']
     cancelados = int(tickets['Cancelado'].sum())
 
-    # Header
     st.markdown(
         '<div class="ig-header"><div class="ig-hl"><div class="ig-logo">G</div>'
         '<div><div class="ig-title">' + titulo + '</div>'
@@ -423,7 +336,6 @@ def render_dashboard(tickets, data, titulo, subtitulo, modo='familias'):
 
     # Tabela completa
     st.markdown('<div class="sec-label">Visao completa — ' + str(total) + ' tickets · clique na familia para expandir</div>', unsafe_allow_html=True)
-
     st.markdown(
         '<div class="leg">'
         '<span class="li"><span class="ls" style="background:#5aad7e"></span>Atribuido no prazo</span>'
@@ -436,17 +348,20 @@ def render_dashboard(tickets, data, titulo, subtitulo, modo='familias'):
         '<div class="med-note">Colunas em azul = medias calculadas pela fornecedora</div>',
         unsafe_allow_html=True)
 
+    exp_key = 'expanded_' + subtitulo.replace(' ','_')
+    if exp_key not in st.session_state:
+        st.session_state[exp_key] = set()
+
     exp_cols = st.columns(3)
     for i, fam in enumerate(['Energizados','AZA','iVolt']):
         with exp_cols[i]:
-            is_open = fam in st.session_state.get('expanded', set())
+            is_open = fam in st.session_state[exp_key]
             lbl = ('Recolher ' if is_open else 'Expandir ') + fam
-            key = 'exp_' + fam + '_' + subtitulo.replace(' ','_')
-            if st.button(lbl, key=key,
+            if st.button(lbl, key='exp_'+fam+'_'+subtitulo.replace(' ','_'),
                          type='primary' if is_open else 'secondary',
                          use_container_width=True):
-                if is_open: st.session_state.expanded.discard(fam)
-                else:       st.session_state.expanded.add(fam)
+                if is_open: st.session_state[exp_key].discard(fam)
+                else:       st.session_state[exp_key].add(fam)
                 st.rerun()
 
     keys_n = ['atr_prazo','atr_atraso','nat_prazo','nat_atraso','enc_prazo','enc_atraso']
@@ -477,8 +392,11 @@ def render_dashboard(tickets, data, titulo, subtitulo, modo='familias'):
         vt = '<span class="vs">' + fmt_r(fm['valor']) + '</span>' if fm['valor']>0 else ''
         tbl += '<tr class="fr"><td><span class="badge ' + badge + '">' + fam + '</span></td>' + cells + '<td class="nt">' + str(fm['total']) + vt + '</td><td>—</td><td>—</td></tr>'
 
-        if fam in st.session_state.get('expanded', set()):
-            for forn in FORN_BY_FAM[fam]:
+        if fam in st.session_state[exp_key]:
+            forns_fam = FORN_BY_FAM.get(fam,[])
+            # inclui fornecedoras novas que não estão no mapa fixo
+            forns_extra = [f for f in tickets[tickets['Familia']==fam]['Fornecedora'].unique() if f not in forns_fam]
+            for forn in forns_fam + forns_extra:
                 fd2 = tickets[tickets['Fornecedora']==forn]
                 if not len(fd2): continue
                 fm2  = agg(fd2)
@@ -502,30 +420,24 @@ def render_dashboard(tickets, data, titulo, subtitulo, modo='familias'):
     # Detalhe tickets em atraso
     st.markdown('<div class="sec-label">Detalhe dos tickets em atraso — clique para ver</div>', unsafe_allow_html=True)
 
-    all_forns_ordem = ['COMERC','VANTAGE','MATO GROSSO ENERGIA','COTESA-MOVE','SUNCLICK','FARO','ULTRA',
-                       'SUNNE','SOLATIO','EDP','FIT','GV','BC']
-    # inclui fornecedoras que aparecem nos tickets (pode ter novas do setor)
-    forns_presentes = tickets['Fornecedora'].unique().tolist()
-    all_forns_final = all_forns_ordem + [f for f in forns_presentes if f not in all_forns_ordem]
-
     det_key = 'detail_forn_' + subtitulo.replace(' ','_')
     if det_key not in st.session_state:
         st.session_state[det_key] = None
 
     for fam in ['Energizados','AZA','iVolt']:
-        forns_fam = [f for f in all_forns_final if FAMILIA_MAP.get(f,'Outros')==fam]
-        forns_com_atraso = [f for f in forns_fam if len(tickets[(tickets['Fornecedora']==f) & tickets['Atraso']]) > 0]
-        if not forns_com_atraso:
-            continue
-        badge_cls = FAM_BADGE[fam]
+        forns_fam = FORN_BY_FAM.get(fam,[])
+        forns_extra = [f for f in tickets[tickets['Familia']==fam]['Fornecedora'].unique() if f not in forns_fam]
+        todas = forns_fam + forns_extra
+        forns_com_atraso = [f for f in todas if len(tickets[(tickets['Fornecedora']==f) & tickets['Atraso']]) > 0]
+        if not forns_com_atraso: continue
+        badge_cls = FAM_BADGE.get(fam,'be')
         st.markdown('<span class="badge ' + badge_cls + '" style="font-size:11px;padding:3px 10px">' + fam + '</span>', unsafe_allow_html=True)
         btn_row = st.columns(min(len(forns_com_atraso), 6))
         for i, forn in enumerate(forns_com_atraso):
             n_atraso = len(tickets[(tickets['Fornecedora']==forn) & tickets['Atraso']])
             with btn_row[i]:
                 ativo = st.session_state[det_key] == forn
-                lbl = forn + ' (' + str(n_atraso) + ')'
-                if st.button(lbl, key='det_'+forn+'_'+subtitulo.replace(' ','_'),
+                if st.button(forn + ' (' + str(n_atraso) + ')', key='det_'+forn+'_'+subtitulo.replace(' ','_'),
                              type='primary' if ativo else 'secondary',
                              use_container_width=True):
                     st.session_state[det_key] = None if ativo else forn
@@ -542,49 +454,43 @@ def render_dashboard(tickets, data, titulo, subtitulo, modo='familias'):
                 if v not in ['-','nan','']: vals.append(v)
             return ', '.join(vals) if vals else '-'
 
-        cut = pd.Timestamp(data['_CriadoTS'].max().date()).replace(hour=23,minute=59,second=59)
+        cut   = pd.Timestamp(data['_CriadoTS'].max().date()).replace(hour=23,minute=59,second=59)
         sla_s = SLA_DAYS*24*3600
 
-        # filtra da base original pela fornecedora e pelo setor se aplicável
         base_forn = data[data['_Fornecedora']==forn_sel]
-        if subtitulo != 'Inadimplência Comercial':
+        # filtra setor se não for consolidado
+        if subtitulo != 'Consolidado — todos os setores':
             base_forn = base_forn[base_forn['_Setor']==subtitulo]
 
         detail_rows = []
         for _, r in base_forn.iterrows():
             status = str(r.get('Status','')).strip()
-            if status == 'Cancelado': continue
-            c = r['_CriadoTS']; f = r['_FinalizadoTS']
+            if status in ('Cancelado','Finalizado'): continue
+            c = r['_CriadoTS']
             if pd.isna(c): continue
-            enc = status == 'Finalizado'
-            if enc: continue
             secs = int((cut-c).total_seconds())
             if secs < sla_s: continue
             dias_atraso = secs // 86400
             horas_rest  = (secs % 86400) // 3600
-            tempo_str   = str(dias_atraso) + 'd ' + str(horas_rest) + 'h em atraso'
             detail_rows.append({
-                'Código':        str(r['Código']),
-                'Tipo':          str(r['Tipo']),
-                'Status':        str(r['Status']),
-                'Atribuição':    get_bko(r),
-                'Criado em':     r['_CriadoTS'].strftime('%d/%m/%Y') if pd.notna(r['_CriadoTS']) else '-',
-                'Tempo em atraso': tempo_str,
-                'Dias úteis':    str(r.get('Tempo em Aberto (Dias Úteis)','-')),
-                'Valor':         str(r['Valor Total']) if str(r['Valor Total']) not in ['-','nan'] else '-',
+                'Código':          str(r['Código']),
+                'Tipo':            str(r['Tipo']),
+                'Status':          str(r['Status']),
+                'Atribuição':      get_bko(r),
+                'Criado em':       r['_CriadoTS'].strftime('%d/%m/%Y') if pd.notna(r['_CriadoTS']) else '-',
+                'Tempo em atraso': str(dias_atraso) + 'd ' + str(horas_rest) + 'h em atraso',
+                'Dias úteis':      str(r.get('Tempo em Aberto (Dias Úteis)','-')),
+                'Valor':           str(r['Valor Total']) if str(r['Valor Total']) not in ['-','nan'] else '-',
             })
 
         df_detail = pd.DataFrame(detail_rows)
-        n_total = len(df_detail)
 
         st.markdown(
             '<div style="background:#141414;border:1px solid #1e1e1e;border-radius:10px;padding:16px;margin-top:12px;">'
-            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
-            '<div>'
+            '<div style="margin-bottom:12px;">'
             '<span style="font-size:15px;font-weight:700;color:#e0e0e0">' + forn_sel + '</span>'
-            '<span style="font-size:12px;color:#ef5350;margin-left:10px;font-weight:600">' + str(n_total) + ' tickets em atraso</span>'
-            '</div></div>',
-            unsafe_allow_html=True)
+            '<span style="font-size:12px;color:#ef5350;margin-left:10px;font-weight:600">' + str(len(df_detail)) + ' tickets em atraso</span>'
+            '</div>', unsafe_allow_html=True)
 
         if len(df_detail) > 0:
             det_tbl = (
@@ -630,10 +536,64 @@ def render_dashboard(tickets, data, titulo, subtitulo, modo='familias'):
     st.markdown('<br><div style="text-align:right;font-size:10px;color:#2a2a2a">iGreen Energy · ' + subtitulo + '</div>', unsafe_allow_html=True)
 
 
+# ── SIDEBAR
+with st.sidebar:
+    st.markdown('### iGreen Energy')
+    st.markdown('SLA de Tickets')
+    st.divider()
+
+    if 'pagina' not in st.session_state:
+        st.session_state.pagina = 'consolidado'
+
+    planilhas_sb = listar_planilhas()
+    datas_sb = list(planilhas_sb.keys()) if planilhas_sb else []
+    if 'data_sel' not in st.session_state and datas_sb:
+        st.session_state.data_sel = datas_sb[0]
+
+    st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Base de dados</p>', unsafe_allow_html=True)
+    for label in datas_sb:
+        ativo = st.session_state.get('data_sel') == label
+        if st.button(label, key='sb_btn_'+label,
+                     type='primary' if ativo else 'secondary',
+                     use_container_width=True):
+            st.session_state.data_sel = label
+            st.rerun()
+
+    st.divider()
+    st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Visão geral</p>', unsafe_allow_html=True)
+    if st.button('Consolidado', key='btn_consolidado',
+                 type='primary' if st.session_state.pagina=='consolidado' else 'secondary',
+                 use_container_width=True):
+        st.session_state.pagina = 'consolidado'
+        st.rerun()
+
+    st.divider()
+    st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Setores</p>', unsafe_allow_html=True)
+    for setor in SETORES_VALIDOS:
+        if st.button(setor, key='btn_setor_'+setor,
+                     type='primary' if st.session_state.pagina==setor else 'secondary',
+                     use_container_width=True):
+            st.session_state.pagina = setor
+            st.rerun()
+
+    st.divider()
+    st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Análise</p>', unsafe_allow_html=True)
+    if st.button('Evolução por período', key='btn_evolucao',
+                 type='primary' if st.session_state.pagina=='evolucao' else 'secondary',
+                 use_container_width=True):
+        st.session_state.pagina = 'evolucao'
+        st.rerun()
+
+    st.divider()
+    st.markdown('**Atualizar:**\nSuba em `dados/` no GitHub:\n`Tickets_DDmesAAAA.xlsx`')
+    st.divider()
+    st.caption('SLA: 3 dias úteis · 13 fornecedoras')
+
+
 # ── ROTEAMENTO
 planilhas = listar_planilhas()
 
-if st.session_state.get('pagina','dashboard') == 'evolucao':
+if st.session_state.get('pagina') == 'evolucao':
     st.markdown(
         '<div class="ig-header"><div class="ig-hl"><div class="ig-logo">G</div>'
         '<div><div class="ig-title">Evolução por Período</div>'
@@ -660,6 +620,12 @@ if st.session_state.get('pagina','dashboard') == 'evolucao':
                         df['_Familia'] = FAMILIA_MAP.get(forn,'Outros')
                         dfs.append(df)
                     d = pd.concat(dfs, ignore_index=True)
+                    if 'Setor' in d.columns:
+                        d['_Setor'] = d['Setor'].apply(lambda x: str(x).strip() if pd.notna(x) else '')
+                    else:
+                        d['_Setor'] = ''
+                    # Filtra apenas setores válidos
+                    d = d[d['_Setor'].isin(SETORES_VALIDOS)]
                     d['_Valor'] = d['Valor Total'].apply(parse_valor)
                     d['_CriadoTS'] = pd.to_datetime(d['Criado Em'], errors='coerce')
                     d['_FinalizadoTS'] = pd.to_datetime(d['Data Finalização'], errors='coerce')
@@ -669,10 +635,8 @@ if st.session_state.get('pagina','dashboard') == 'evolucao':
                     en_at = 0; az_at = 0; iv_at = 0
                     for _, r in d[d['_CriadoTS']<=cut].iterrows():
                         status = str(r.get('Status','')).strip()
-                        if status == 'Cancelado': continue
-                        c=r['_CriadoTS']; f=r['_FinalizadoTS']
-                        enc = status == 'Finalizado'
-                        if enc: continue
+                        if status in ('Cancelado','Finalizado'): continue
+                        c=r['_CriadoTS']
                         secs = int((cut-c).total_seconds())
                         if secs>=sla_s:
                             total_at += 1
@@ -709,7 +673,7 @@ if st.session_state.get('pagina','dashboard') == 'evolucao':
             st.markdown('<div class="sec-label" style="margin-top:20px">Evolução total de tickets em atraso</div>', unsafe_allow_html=True)
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=df_evo['Data'],y=df_evo['Em Atraso'],mode='lines+markers+text',name='Total em atraso',line={'color':'#ef5350','width':2},marker={'size':10,'color':'#ef5350'},text=[str(v) for v in df_evo['Em Atraso']],textposition='top center',textfont={'color':'#ef5350','size':13}))
-            fig.update_layout(paper_bgcolor='#0f0f0f',plot_bgcolor='#141414',height=280,margin={'l':20,'r':20,'t':10,'b':20},legend={'orientation':'h','x':0,'y':1.15,'font':{'color':'#888','size':11},'bgcolor':'rgba(0,0,0,0)'},xaxis={'gridcolor':'#1e1e1e','tickfont':{'color':'#888','size':12}},yaxis={'gridcolor':'#1a1a1a','tickfont':{'color':'#aaa','size':11}})
+            fig.update_layout(paper_bgcolor='#0f0f0f',plot_bgcolor='#141414',height=280,margin={'l':20,'r':20,'t':10,'b':20},xaxis={'gridcolor':'#1e1e1e','tickfont':{'color':'#888','size':12}},yaxis={'gridcolor':'#1a1a1a','tickfont':{'color':'#aaa','size':11}})
             st.plotly_chart(fig, use_container_width=True)
 
             st.markdown('<div class="sec-label">Evolução por família</div>', unsafe_allow_html=True)
@@ -728,30 +692,33 @@ if st.session_state.get('pagina','dashboard') == 'evolucao':
             st.markdown(tbl_evo, unsafe_allow_html=True)
 
 else:
-    # Dashboard principal ou setor
     if not planilhas:
         st.error('Nenhuma planilha em dados/.')
         st.stop()
 
     datas = list(planilhas.keys())
-    if 'data_sel' not in st.session_state: st.session_state.data_sel = datas[0]
-    if 'expanded' not in st.session_state: st.session_state.expanded = set()
+    if 'data_sel' not in st.session_state:
+        st.session_state.data_sel = datas[0]
 
     with st.spinner('Carregando...'):
-        data    = load_data(planilhas[st.session_state.data_sel])
-        cutoff  = data['_CriadoTS'].max().date()
+        data         = load_data(planilhas[st.session_state.data_sel])
+        cutoff       = data['_CriadoTS'].max().date()
         tickets_todos = calc_on_date(data, cutoff)
+        # Filtra apenas os 5 setores válidos para TODOS os cálculos
+        tickets_base  = tickets_todos[tickets_todos['Setor'].isin(SETORES_VALIDOS)]
 
-    pagina = st.session_state.get('pagina', 'dashboard')
+    pagina = st.session_state.get('pagina', 'consolidado')
 
-    if pagina == 'dashboard':
-        # Visão Inadimplência Comercial — sem filtro de setor (comportamento original)
-        render_dashboard(tickets_todos, data,
-                         titulo='Dashboard de Tickets',
-                         subtitulo='Inadimplência Comercial')
+    if pagina == 'consolidado':
+        render_dashboard(
+            tickets_base, data,
+            titulo='Dashboard de Tickets — Consolidado',
+            subtitulo='Consolidado — todos os setores'
+        )
     elif pagina in SETORES_VALIDOS:
-        # Filtra pelo setor selecionado
-        tickets_setor = tickets_todos[tickets_todos['Setor'] == pagina]
-        render_dashboard(tickets_setor, data,
-                         titulo='Dashboard de Tickets — ' + pagina,
-                         subtitulo=pagina)
+        tickets_setor = tickets_base[tickets_base['Setor'] == pagina]
+        render_dashboard(
+            tickets_setor, data,
+            titulo='Dashboard de Tickets — ' + pagina,
+            subtitulo=pagina
+        )
