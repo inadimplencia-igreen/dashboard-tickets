@@ -677,25 +677,25 @@ if st.session_state.get('pagina') == 'evolucao':
                         df['_Familia'] = get_familia(forn)
                         dfs.append(df)
                     d = pd.concat(dfs, ignore_index=True)
-                    d['_Setor'] = d['Setor'].apply(lambda x: str(x).strip() if pd.notna(x) else '') if 'Setor' in d.columns else ''
+                    d['_Setor'] = d['Setor'].fillna('').astype(str).str.strip() if 'Setor' in d.columns else ''
                     d = d[d['_Setor'].isin(SETORES_VALIDOS)]
-                    d['_Valor'] = d['Valor Total'].apply(parse_valor)
+                    d['_Valor'] = pd.to_numeric(
+                        d['Valor Total'].astype(str).str.replace('R$','',regex=False)
+                        .str.replace(' ','',regex=False).str.replace('.','',regex=False)
+                        .str.replace(',','.',regex=False), errors='coerce').fillna(0)
                     d['_CriadoTS'] = pd.to_datetime(d['Criado Em'], errors='coerce')
                     cut = d['_CriadoTS'].max()
-                    sla_s = SLA_DAYS * 24 * 3600
-                    total_at = 0; valor_at = 0.0
-                    en_at = 0; az_at = 0; iv_at = 0
-                    for _, r in d[d['_CriadoTS']<=cut].iterrows():
-                        status = str(r.get('Status','')).strip()
-                        if status in ('Cancelado','Finalizado'): continue
-                        secs = int((cut-r['_CriadoTS']).total_seconds())
-                        if secs>=sla_s:
-                            total_at += 1
-                            valor_at += float(r.get('_Valor',0))
-                            fam = r['_Familia']
-                            if fam=='Energizados': en_at+=1
-                            elif fam=='AZA': az_at+=1
-                            elif fam=='iVolt': iv_at+=1
+                    sla_td = pd.Timedelta(days=SLA_DAYS)
+                    status = d['Status'].fillna('').astype(str).str.strip()
+                    aberto = ~status.isin(['Cancelado','Finalizado'])
+                    d2 = d[d['_CriadoTS'] <= cut & aberto].copy() if False else d[(d['_CriadoTS'] <= cut) & aberto].copy()
+                    d2['_secs'] = cut - d2['_CriadoTS']
+                    atraso = d2[d2['_secs'] >= sla_td]
+                    total_at = len(atraso)
+                    valor_at = float(atraso['_Valor'].sum())
+                    en_at = int((atraso['_Familia']=='Energizados').sum())
+                    az_at = int((atraso['_Familia']=='AZA').sum())
+                    iv_at = int((atraso['_Familia']=='iVolt').sum())
                     resultados.append({'Data':label,'Em Atraso':total_at,'Valor em Atraso':valor_at,'Energizados':en_at,'AZA':az_at,'iVolt':iv_at})
                 except:
                     pass
