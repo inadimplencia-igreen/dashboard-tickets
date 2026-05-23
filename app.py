@@ -219,11 +219,10 @@ def calc_on_date(data, cutoff_date):
     df['_SecsAberto'] = (cut - df['_CriadoTS'])
 
     fin_valida = finalizado & df['_FinalizadoTS'].notna() & (df['_FinalizadoTS'] <= cut)
-    df['_SecsFin'] = pd.NaT
-    df.loc[fin_valida, '_SecsFin'] = df.loc[fin_valida, '_FinalizadoTS'] - df.loc[fin_valida, '_CriadoTS']
+    secs_fin = (df['_FinalizadoTS'] - df['_CriadoTS']).where(fin_valida)
 
     at_aberto  = aberto    & (df['_SecsAberto'] >= sla_s)
-    at_fin     = fin_valida & (df['_SecsFin']   >= sla_s)
+    at_fin     = fin_valida & (secs_fin          >= sla_s)
     fin_sem_data = finalizado & (~fin_valida)
 
     df['Cancelado'] = cancelado
