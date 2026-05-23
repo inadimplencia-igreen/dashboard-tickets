@@ -206,44 +206,37 @@ def get_medias(data, forn):
     return fv('_MediaResp'), fv('_MediaFin')
 
 def calc_on_date(data, cutoff_date):
-    cut   = pd.Timestamp(cutoff_date).replace(hour=23,minute=59,second=59)
-    sla_s = SLA_DAYS*24*3600
-    rows  = []
-    for _,r in data[data['_CriadoTS']<=cut].iterrows():
-        status = str(r.get('Status','')).strip()
-        if status == 'Cancelado':
-            rows.append({
-                'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],'Tipo':r['_Tipo'],
-                'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
-                'Atraso':False,'NoPrazo':False,'EncAtraso':False,'EncPrazo':False,'Cancelado':True,
-            })
-            continue
-        c=r['_CriadoTS']; f=r['_FinalizadoTS']
-        enc = status == 'Finalizado'
-        if enc:
-            if pd.isna(f) or f > cut:
-                rows.append({
-                    'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],'Tipo':r['_Tipo'],
-                    'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
-                    'Atraso':False,'NoPrazo':False,'EncAtraso':False,'EncPrazo':True,'Cancelado':False,
-                })
-            else:
-                secs = int((f-c).total_seconds())
-                at   = secs >= sla_s
-                rows.append({
-                    'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],'Tipo':r['_Tipo'],
-                    'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
-                    'Atraso':False,'NoPrazo':False,'EncAtraso':at,'EncPrazo':not at,'Cancelado':False,
-                })
-        else:
-            secs = int((cut-c).total_seconds())
-            at   = secs >= sla_s
-            rows.append({
-                'Fornecedora':r['_Fornecedora'],'Familia':r['_Familia'],'Setor':r['_Setor'],'Tipo':r['_Tipo'],
-                'Atribuido':r['_Atribuido'],'Valor':r['_Valor'],
-                'Atraso':at,'NoPrazo':not at,'EncAtraso':False,'EncPrazo':False,'Cancelado':False,
-            })
-    return pd.DataFrame(rows)
+    cut   = pd.Timestamp(cutoff_date).replace(hour=23, minute=59, second=59)
+    sla_s = pd.Timedelta(days=SLA_DAYS)
+
+    df = data[data['_CriadoTS'] <= cut].copy()
+    df['_Status'] = df['Status'].fillna('').astype(str).str.strip()
+
+    cancelado  = df['_Status'] == 'Cancelado'
+    finalizado = df['_Status'] == 'Finalizado'
+    aberto     = ~cancelado & ~finalizado
+
+    df['_SecsAberto'] = (cut - df['_CriadoTS'])
+
+    fin_valida = finalizado & df['_FinalizadoTS'].notna() & (df['_FinalizadoTS'] <= cut)
+    df['_SecsFin'] = pd.NaT
+    df.loc[fin_valida, '_SecsFin'] = df.loc[fin_valida, '_FinalizadoTS'] - df.loc[fin_valida, '_CriadoTS']
+
+    at_aberto  = aberto    & (df['_SecsAberto'] >= sla_s)
+    at_fin     = fin_valida & (df['_SecsFin']   >= sla_s)
+    fin_sem_data = finalizado & (~fin_valida)
+
+    df['Cancelado'] = cancelado
+    df['Atraso']    = at_aberto
+    df['NoPrazo']   = aberto & ~at_aberto
+    df['EncAtraso'] = at_fin
+    df['EncPrazo']  = (fin_valida & ~at_fin) | fin_sem_data
+
+    return df[['_Fornecedora','_Familia','_Setor','_Tipo','_Atribuido','_Valor',
+               'Cancelado','Atraso','NoPrazo','EncAtraso','EncPrazo']].rename(columns={
+        '_Fornecedora':'Fornecedora','_Familia':'Familia','_Setor':'Setor',
+        '_Tipo':'Tipo','_Atribuido':'Atribuido','_Valor':'Valor'
+    })
 
 def agg(df):
     df = df[~df['Cancelado']]
