@@ -113,6 +113,8 @@ FAMILIA_MAP_NORM = {
     normalizar('ATUA'):               'AZA',
     normalizar('REENERGISA'):         'AZA',
     normalizar('GEDISA'):             'AZA',
+    normalizar('ORIGO'):              'AZA',
+    normalizar('SEM FORNECEDORA'):    'Sem Fornecedora',
     normalizar('SUNNE'):              'iVolt',
     normalizar('SOLATIO'):            'iVolt',
     normalizar('EDP'):                'iVolt',
@@ -470,6 +472,17 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                 mf_h = '<span class="vm">' + mf + '</span>' if mf!='-' else '<span class="z">—</span>'
                 tbl += '<tr class="dr"><td>' + forn + '</td>' + c2 + '<td>' + str(fm2['total']) + vt2 + '</td><td>' + mr_h + '</td><td>' + mf_h + '</td></tr>'
 
+    # Sem Fornecedora
+    ft_sf = tickets[tickets['Familia']=='Sem Fornecedora']
+    if len(ft_sf) > 0:
+        fm_sf = agg(ft_sf)
+        ns_sf = [fm_sf[k] for k in keys_n]
+        vs_sf = [fm_sf[k] for k in keys_v]
+        for i in range(6): t6n[i]+=ns_sf[i]; t6v[i]+=vs_sf[i]
+        cells_sf = ''.join(cel(ns_sf[i],vs_sf[i],clss[i]) for i in range(6))
+        vt_sf = '<span class="vs">' + fmt_r(fm_sf['valor']) + '</span>' if fm_sf['valor']>0 else ''
+        tbl += '<tr class="fr"><td><span class="badge" style="background:#1a1a1a;color:#888;border:1px solid #333">Sem Fornecedora</span></td>' + cells_sf + '<td class="nt">' + str(fm_sf['total']) + vt_sf + '</td><td>—</td><td>—</td></tr>'
+
     tc = ''.join(cel(t6n[i],t6v[i],clss[i]) for i in range(6))
     vt_tot = '<span class="vs">' + fmt_r(m['valor']) + '</span>' if m['valor']>0 else ''
     tbl += '<tr class="tr"><td>TOTAL GERAL</td>' + tc + '<td class="nt">' + str(total) + vt_tot + '</td><td>—</td><td>—</td></tr>'
@@ -484,6 +497,24 @@ def render_dashboard(tickets, data, titulo, subtitulo):
     det_key = 'detail_forn_' + subtitulo.replace(' ','_')
     if det_key not in st.session_state:
         st.session_state[det_key] = None
+
+    # Botões Sem Fornecedora
+    ft_sf = tickets[tickets['Familia']=='Sem Fornecedora']
+    sf_atraso = ft_sf[ft_sf['Atraso']]
+    if len(sf_atraso) > 0:
+        st.markdown('<span class="badge" style="background:#1a1a1a;color:#888;border:1px solid #333;font-size:11px;padding:3px 10px">Sem Fornecedora</span>', unsafe_allow_html=True)
+        forns_sf = sorted(sf_atraso['Fornecedora'].unique().tolist())
+        btn_sf = st.columns(min(len(forns_sf), 6))
+        for i, forn in enumerate(forns_sf):
+            n_at = len(sf_atraso[sf_atraso['Fornecedora']==forn])
+            with btn_sf[i]:
+                ativo = st.session_state[det_key] == forn
+                if st.button(forn + ' (' + str(n_at) + ')',
+                             key='det_'+forn+'_'+subtitulo.replace(' ','_'),
+                             type='primary' if ativo else 'secondary',
+                             use_container_width=True):
+                    st.session_state[det_key] = None if ativo else forn
+                    st.rerun()
 
     for fam in ['Energizados','AZA','iVolt']:
         forns_com_atraso = [f for f in forn_por_fam.get(fam,[])
