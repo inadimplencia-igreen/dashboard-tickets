@@ -756,9 +756,39 @@ if st.session_state.get('pagina') == 'evolucao':
             with c4: st.markdown('<div class="card card-alert"><div class="card-fam">Valor em atraso atual</div><div class="card-num num-red" style="font-size:22px">'+fmt_r(df_evo["Valor em Atraso"].iloc[-1])+'</div></div>', unsafe_allow_html=True)
 
             st.markdown('<div class="sec-label" style="margin-top:20px">Evolução total</div>', unsafe_allow_html=True)
+            # Monta labels com variação colorida
+            valores = list(df_evo['Em Atraso'])
+            labels = []
+            colors = []
+            for idx, v in enumerate(valores):
+                if idx == 0:
+                    labels.append(str(v))
+                    colors.append('#ef5350')
+                else:
+                    diff = v - valores[idx-1]
+                    sinal = '↑' if diff > 0 else '↓'
+                    cor = '#ef5350' if diff > 0 else '#5aad7e'
+                    labels.append(f'{v} {sinal}{abs(diff)}')
+                    colors.append(cor)
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df_evo['Data'],y=df_evo['Em Atraso'],mode='lines+markers+text',line={'color':'#ef5350','width':2},marker={'size':10},text=[str(v) for v in df_evo['Em Atraso']],textposition='top center',textfont={'color':'#ef5350','size':13}))
-            fig.update_layout(paper_bgcolor='#0f0f0f',plot_bgcolor='#141414',height=280,margin={'l':20,'r':20,'t':10,'b':20},xaxis={'gridcolor':'#1e1e1e','tickfont':{'color':'#888','size':12}},yaxis={'gridcolor':'#1a1a1a','tickfont':{'color':'#aaa','size':11}},showlegend=False)
+            for idx in range(len(df_evo)):
+                fig.add_trace(go.Scatter(
+                    x=[df_evo['Data'].iloc[idx]],
+                    y=[df_evo['Em Atraso'].iloc[idx]],
+                    mode='markers+text',
+                    marker={'size':10,'color':'#ef5350'},
+                    text=[labels[idx]],
+                    textposition='top center',
+                    textfont={'color':colors[idx],'size':13},
+                    showlegend=False
+                ))
+            fig.add_trace(go.Scatter(
+                x=df_evo['Data'],y=df_evo['Em Atraso'],
+                mode='lines',
+                line={'color':'#ef5350','width':2},
+                showlegend=False
+            ))
+            fig.update_layout(paper_bgcolor='#0f0f0f',plot_bgcolor='#141414',height=300,margin={'l':20,'r':20,'t':40,'b':20},xaxis={'gridcolor':'#1e1e1e','tickfont':{'color':'#888','size':12}},yaxis={'gridcolor':'#1a1a1a','tickfont':{'color':'#aaa','size':11}},showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
 
             st.markdown('<div class="sec-label">Evolução por família</div>', unsafe_allow_html=True)
