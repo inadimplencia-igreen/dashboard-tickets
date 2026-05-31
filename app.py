@@ -836,8 +836,14 @@ if st.session_state.get('pagina') == 'evolucao':
             # ── Gráfico por família
             st.markdown('<div class="sec-label">Evolução por família</div>', unsafe_allow_html=True)
             fig2 = go.Figure()
+            fam_positions = {
+                'Energizados': 'top center',
+                'AZA':         'bottom center',
+                'iVolt':       'top center',
+            }
             for fam_nome, fam_cor in [('Energizados','#5aad7e'),('AZA','#ffa726'),('iVolt','#42a5f5')]:
                 lb_f, cl_f = make_labels(df_evo[fam_nome])
+                txt_pos = fam_positions[fam_nome]
                 fig2.add_trace(go.Scatter(x=df_evo['Data'], y=df_evo[fam_nome],
                     mode='lines', name=fam_nome,
                     line={'color':fam_cor,'width':2}, showlegend=True))
@@ -847,7 +853,7 @@ if st.session_state.get('pagina') == 'evolucao':
                         mode='markers+text',
                         marker={'size':7,'color':fam_cor},
                         text=[lb_f[i]],
-                        textposition='top center',
+                        textposition=txt_pos,
                         textfont={'color':cl_f[i],'size':10},
                         showlegend=False, name=fam_nome
                     ))
