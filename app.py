@@ -300,6 +300,7 @@ def render_dashboard(tickets, data, titulo, subtitulo):
     m          = agg(tickets)
     total      = m['total']
     cancelados = int(tickets['Cancelado'].sum())
+    is_setor   = subtitulo in SETORES_VALIDOS  # True quando é página de setor específico
 
     forn_por_fam = {}
     for fam in ['Energizados','AZA','iVolt','Sem Fornecedora']:
@@ -323,8 +324,16 @@ def render_dashboard(tickets, data, titulo, subtitulo):
         maior_n = int(byf.max()) if len(byf)>0 else 0
         fam_data[fam] = {'m':fm,'maior':maior,'maior_n':maior_n}
 
+    # Card Sem Fornecedora — só dentro de setores
+    ft_sf = tickets[tickets['Familia']=='Sem Fornecedora'] if is_setor else pd.DataFrame()
+    fm_sf = agg(ft_sf) if len(ft_sf)>0 else None
+
     st.markdown('<div class="sec-label">Não resolvidos em atraso — apenas abertos</div>', unsafe_allow_html=True)
-    cols = st.columns(5)
+
+    # Se setor e tem Sem Fornecedora: 6 colunas, senão 5
+    n_cols = 6 if (is_setor and fm_sf is not None) else 5
+    cols = st.columns(n_cols)
+
     for i, fam in enumerate(['Energizados','AZA','iVolt']):
         fd = fam_data[fam]; fm = fd['m']
         sub_val = fd['maior'] + ' (' + str(fd['maior_n']) + ')' if fd['maior'] != '-' else '-'
@@ -340,7 +349,26 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                 '<div class="card-hl"><span class="hl-lbl">Valor total família</span><span class="hl-val">' + fmt_r(fm['valor']) + '</span></div>'
                 '</div>', unsafe_allow_html=True)
 
-    with cols[3]:
+    # Card Sem Fornecedora — só em setores
+    if is_setor and fm_sf is not None:
+        with cols[3]:
+            st.markdown(
+                '<div class="card card-alert" style="border-top-color:#555">'
+                '<div class="card-fam">Sem Fornecedora</div>'
+                '<div class="card-num num-red">' + str(fm_sf['atraso_n']) + '</div>'
+                '<div class="card-row"><span class="c-lbl">Atribuído (BKO)</span><span class="c-red">' + str(fm_sf['atr_atrib']) + '</span></div>'
+                '<div class="card-row"><span class="c-lbl">Não atribuído</span><span class="c-val">' + str(fm_sf['atr_natrib']) + '</span></div>'
+                '<div class="card-row"><span class="c-lbl">Total tickets</span><span class="c-val">' + str(fm_sf['total']) + '</span></div>'
+                '<div class="card-row"><span class="c-lbl">Valor em atraso</span><span class="c-val">' + fmt_r(fm_sf['atraso_v']) + '</span></div>'
+                '<div class="card-hl"><span class="hl-lbl">Valor total</span><span class="hl-val">' + fmt_r(fm_sf['valor']) + '</span></div>'
+                '</div>', unsafe_allow_html=True)
+        total_col = 4
+        cancel_col = 5
+    else:
+        total_col = 3
+        cancel_col = 4
+
+    with cols[total_col]:
         st.markdown(
             '<div class="card card-total">'
             '<div class="card-fam">Total geral</div>'
@@ -352,7 +380,7 @@ def render_dashboard(tickets, data, titulo, subtitulo):
             '<div class="card-hl"><span class="hl-lbl">Valor total geral</span><span class="hl-val">' + fmt_r(m['valor']) + '</span></div>'
             '</div>', unsafe_allow_html=True)
 
-    with cols[4]:
+    with cols[cancel_col]:
         st.markdown(
             '<div class="card card-cancel">'
             '<div class="card-fam">Cancelados</div>'
@@ -499,24 +527,6 @@ def render_dashboard(tickets, data, titulo, subtitulo):
     if det_key not in st.session_state:
         st.session_state[det_key] = None
 
-    # Botões Sem Fornecedora
-    ft_sf = tickets[tickets['Familia']=='Sem Fornecedora']
-    sf_atraso = ft_sf[ft_sf['Atraso']]
-    if len(sf_atraso) > 0:
-        st.markdown('<span class="badge" style="background:#1a1a1a;color:#888;border:1px solid #333;font-size:11px;padding:3px 10px">Sem Fornecedora</span>', unsafe_allow_html=True)
-        forns_sf = sorted(sf_atraso['Fornecedora'].unique().tolist())
-        btn_sf = st.columns(min(len(forns_sf), 6))
-        for i, forn in enumerate(forns_sf):
-            n_at = len(sf_atraso[sf_atraso['Fornecedora']==forn])
-            with btn_sf[i]:
-                ativo = st.session_state[det_key] == forn
-                if st.button(forn + ' (' + str(n_at) + ')',
-                             key='det_'+forn+'_'+subtitulo.replace(' ','_'),
-                             type='primary' if ativo else 'secondary',
-                             use_container_width=True):
-                    st.session_state[det_key] = None if ativo else forn
-                    st.rerun()
-
     for fam in ['Energizados','AZA','iVolt','Sem Fornecedora']:
         forns_com_atraso = [f for f in forn_por_fam.get(fam,[])
                             if len(tickets[(tickets['Fornecedora']==f) & tickets['Atraso']]) > 0]
@@ -550,7 +560,7 @@ def render_dashboard(tickets, data, titulo, subtitulo):
             return ', '.join(vals) if vals else '-'
 
         cut   = pd.Timestamp(data['_CriadoTS'].max().date()).replace(hour=23,minute=59,second=59)
-        sla_s = SLA_DAYS*24*3600
+        sla_td = pd.Timedelta(days=SLA_DAYS)
         base_forn = data[data['_Fornecedora']==forn_sel]
         if subtitulo != 'Consolidado — todos os setores':
             base_forn = base_forn[base_forn['_Setor']==subtitulo]
@@ -561,10 +571,10 @@ def render_dashboard(tickets, data, titulo, subtitulo):
             if status in ('Cancelado','Finalizado'): continue
             c = r['_CriadoTS']
             if pd.isna(c): continue
-            secs = int((cut-c).total_seconds())
-            if secs < sla_s: continue
-            dias_atraso = secs // 86400
-            horas_rest  = (secs % 86400) // 3600
+            delta = cut - c
+            if delta < sla_td: continue
+            dias_atraso = delta.days
+            horas_rest  = (delta.seconds) // 3600
             detail_rows.append({
                 'Código':          str(r['Código']),
                 'Tipo':            str(r['Tipo']),
