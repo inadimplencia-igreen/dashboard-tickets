@@ -302,7 +302,7 @@ def render_dashboard(tickets, data, titulo, subtitulo):
     cancelados = int(tickets['Cancelado'].sum())
 
     forn_por_fam = {}
-    for fam in ['Energizados','AZA','iVolt']:
+    for fam in ['Energizados','AZA','iVolt','Sem Fornecedora']:
         forns = sorted(tickets[tickets['Familia']==fam]['Fornecedora'].unique().tolist())
         if forns:
             forn_por_fam[fam] = forns
@@ -416,6 +416,7 @@ def render_dashboard(tickets, data, titulo, subtitulo):
         st.session_state[exp_key] = set()
 
     fams_com_dados = [f for f in ['Energizados','AZA','iVolt'] if f in forn_por_fam]
+    # Sem Fornecedora não aparece nos botões de expandir (já tem seção própria)
     if fams_com_dados:
         exp_cols = st.columns(len(fams_com_dados))
         for i, fam in enumerate(fams_com_dados):
@@ -516,7 +517,7 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                     st.session_state[det_key] = None if ativo else forn
                     st.rerun()
 
-    for fam in ['Energizados','AZA','iVolt']:
+    for fam in ['Energizados','AZA','iVolt','Sem Fornecedora']:
         forns_com_atraso = [f for f in forn_por_fam.get(fam,[])
                             if len(tickets[(tickets['Fornecedora']==f) & tickets['Atraso']]) > 0]
         if not forns_com_atraso: continue
