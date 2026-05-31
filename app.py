@@ -684,8 +684,6 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    st.markdown('**Atualizar:**\nSuba em `dados/` no GitHub:\n`Tickets_DDmesAAAA.xlsx`')
-    st.divider()
     st.caption('SLA: 3 dias úteis · 18 fornecedoras')
 
 
@@ -747,10 +745,12 @@ if st.session_state.get('pagina') == 'evolucao':
 
         if len(df_evo) >= 2:
             var = int(df_evo['Em Atraso'].iloc[-1]) - int(df_evo['Em Atraso'].iloc[-2])
+            base_ant = int(df_evo['Em Atraso'].iloc[-2])
+            var_pct = (var / base_ant * 100) if base_ant else 0
             sinal = '+' if var > 0 else ''
             cor = '#ef5350' if var > 0 else '#5aad7e'
             c1,c2,c3,c4 = st.columns(4)
-            with c1: st.markdown('<div class="card card-total"><div class="card-fam">Variação período</div><div class="card-num" style="color:'+cor+'">'+sinal+str(var)+'</div><div class="card-row"><span class="c-lbl">'+df_evo["Data"].iloc[-2]+' → '+df_evo["Data"].iloc[-1]+'</span></div></div>', unsafe_allow_html=True)
+            with c1: st.markdown('<div class="card card-total"><div class="card-fam">Variação período</div><div class="card-num" style="color:'+cor+'">'+sinal+str(var)+'</div><div class="card-row"><span class="c-lbl">Variação %</span><span class="c-val" style="color:'+cor+'">'+sinal+f'{var_pct:.1f}'+'%</span></div><div class="card-row"><span class="c-lbl">'+df_evo["Data"].iloc[-2]+' → '+df_evo["Data"].iloc[-1]+'</span></div></div>', unsafe_allow_html=True)
             with c2: st.markdown('<div class="card card-alert"><div class="card-fam">Total atual</div><div class="card-num num-red">'+str(df_evo["Em Atraso"].iloc[-1])+'</div></div>', unsafe_allow_html=True)
             with c3: st.markdown('<div class="card card-alert"><div class="card-fam">Período anterior</div><div class="card-num num-red">'+str(df_evo["Em Atraso"].iloc[-2])+'</div></div>', unsafe_allow_html=True)
             with c4: st.markdown('<div class="card card-alert"><div class="card-fam">Valor em atraso atual</div><div class="card-num num-red" style="font-size:22px">'+fmt_r(df_evo["Valor em Atraso"].iloc[-1])+'</div></div>', unsafe_allow_html=True)
