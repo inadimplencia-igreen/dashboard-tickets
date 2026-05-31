@@ -744,69 +744,120 @@ if st.session_state.get('pagina') == 'evolucao':
         df_evo = calc_evolucao(tuple(sorted(planilhas.keys())))
 
         if len(df_evo) >= 2:
-            var = int(df_evo['Em Atraso'].iloc[-1]) - int(df_evo['Em Atraso'].iloc[-2])
-            base_ant = int(df_evo['Em Atraso'].iloc[-2])
-            var_pct = (var / base_ant * 100) if base_ant else 0
-            sinal = '+' if var > 0 else ''
-            cor = '#ef5350' if var > 0 else '#5aad7e'
-            c1,c2,c3,c4 = st.columns(4)
-            with c1: st.markdown('<div class="card card-total"><div class="card-fam">Variação período</div><div class="card-num" style="color:'+cor+'">'+sinal+str(var)+'</div><div class="card-row"><span class="c-lbl">Variação %</span><span class="c-val" style="color:'+cor+'">'+sinal+f'{var_pct:.1f}'+'%</span></div><div class="card-row"><span class="c-lbl">'+df_evo["Data"].iloc[-2]+' → '+df_evo["Data"].iloc[-1]+'</span></div></div>', unsafe_allow_html=True)
-            with c2: st.markdown('<div class="card card-alert"><div class="card-fam">Total atual</div><div class="card-num num-red">'+str(df_evo["Em Atraso"].iloc[-1])+'</div></div>', unsafe_allow_html=True)
-            with c3: st.markdown('<div class="card card-alert"><div class="card-fam">Período anterior</div><div class="card-num num-red">'+str(df_evo["Em Atraso"].iloc[-2])+'</div></div>', unsafe_allow_html=True)
-            with c4: st.markdown('<div class="card card-alert"><div class="card-fam">Valor em atraso atual</div><div class="card-num num-red" style="font-size:22px">'+fmt_r(df_evo["Valor em Atraso"].iloc[-1])+'</div></div>', unsafe_allow_html=True)
+            # ── Helpers de variação
+            def var_info(atual, anterior):
+                diff = atual - anterior
+                pct  = (diff / anterior * 100) if anterior else 0
+                sinal_txt = '+' if diff > 0 else ''
+                seta  = '↑' if diff > 0 else ('↓' if diff < 0 else '→')
+                cor   = '#ef5350' if diff > 0 else ('#5aad7e' if diff < 0 else '#888')
+                return diff, pct, sinal_txt, seta, cor
 
-            st.markdown('<div class="sec-label" style="margin-top:20px">Evolução total</div>', unsafe_allow_html=True)
-            valores = list(df_evo['Em Atraso'])
-            labels = []
-            colors = []
-            positions = []
-            for idx, v in enumerate(valores):
-                if idx == 0:
-                    labels.append(str(v))
-                    colors.append('#ef5350')
-                    positions.append('top center')
-                else:
-                    diff = v - valores[idx-1]
-                    sinal = '↑' if diff > 0 else '↓'
-                    cor = '#ef5350' if diff > 0 else '#5aad7e'
-                    labels.append(f'{v}<br>{sinal}{abs(diff)}')
-                    colors.append(cor)
-                    positions.append('top center')
-            fig = go.Figure()
-            # Linha base
-            fig.add_trace(go.Scatter(
-                x=df_evo['Data'], y=df_evo['Em Atraso'],
-                mode='lines',
-                line={'color':'#ef5350','width':2},
-                showlegend=False
-            ))
-            # Um ponto por vez para cor individual
-            for idx in range(len(df_evo)):
-                fig.add_trace(go.Scatter(
-                    x=[df_evo['Data'].iloc[idx]],
-                    y=[df_evo['Em Atraso'].iloc[idx]],
-                    mode='markers+text',
-                    marker={'size':12,'color':'#ef5350'},
-                    text=[labels[idx]],
-                    textposition=positions[idx],
-                    textfont={'color':colors[idx],'size':15,'family':'Inter'},
+            def make_labels(serie):
+                vals = list(serie)
+                labels, colors = [], []
+                for i, v in enumerate(vals):
+                    if i == 0:
+                        labels.append(str(v)); colors.append('#aaa')
+                    else:
+                        d, p, s, seta, cor = var_info(v, vals[i-1])
+                        labels.append(f'{v}  {seta}{abs(d)}'); colors.append(cor)
+                return labels, colors
+
+            def std_fig(x, y, cor_linha, labels, colors, height=280):
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=x, y=y, mode='lines',
+                    line={'color':cor_linha,'width':2}, showlegend=False))
+                for i in range(len(x)):
+                    fig.add_trace(go.Scatter(
+                        x=[x.iloc[i]], y=[y.iloc[i]],
+                        mode='markers+text',
+                        marker={'size':8, 'color':cor_linha},
+                        text=[labels[i]],
+                        textposition='top center',
+                        textfont={'color':colors[i],'size':11},
+                        showlegend=False
+                    ))
+                fig.update_layout(
+                    paper_bgcolor='#0f0f0f', plot_bgcolor='#141414',
+                    height=height, margin={'l':20,'r':20,'t':50,'b':20},
+                    xaxis={'gridcolor':'#1e1e1e','tickfont':{'color':'#888','size':11}},
+                    yaxis={'gridcolor':'#1a1a1a','tickfont':{'color':'#aaa','size':11}},
                     showlegend=False
-                ))
-            fig.update_layout(
-                paper_bgcolor='#0f0f0f',plot_bgcolor='#141414',
-                height=360,margin={'l':20,'r':20,'t':60,'b':20},
-                xaxis={'gridcolor':'#1e1e1e','tickfont':{'color':'#888','size':12}},
-                yaxis={'gridcolor':'#1a1a1a','tickfont':{'color':'#aaa','size':11}},
-                showlegend=False
-            )
-            st.plotly_chart(fig, use_container_width=True)
+                )
+                return fig
 
+            # ── Cards superiores
+            v_at  = int(df_evo['Em Atraso'].iloc[-1])
+            v_ant = int(df_evo['Em Atraso'].iloc[-2])
+            diff, pct_v, sinal_txt, seta, cor = var_info(v_at, v_ant)
+
+            c1,c2,c3,c4 = st.columns(4)
+            with c1:
+                st.markdown(
+                    '<div class="card card-total">'
+                    '<div class="card-fam">Variação período</div>'
+                    '<div class="card-num" style="color:'+cor+';font-size:28px">'+sinal_txt+str(diff)+'</div>'
+                    '<div class="card-row"><span class="c-lbl">Em %</span><span class="c-val" style="color:'+cor+'">'+sinal_txt+f'{pct_v:.1f}'+'%</span></div>'
+                    '<div class="card-row"><span class="c-lbl">'+df_evo["Data"].iloc[-2]+' → '+df_evo["Data"].iloc[-1]+'</span></div>'
+                    '</div>', unsafe_allow_html=True)
+            with c2:
+                st.markdown(
+                    '<div class="card card-alert">'
+                    '<div class="card-fam">Total atual</div>'
+                    '<div class="card-num num-red" style="font-size:28px">'+str(v_at)+'</div>'
+                    '<div class="card-row"><span class="c-lbl">tickets em atraso</span></div>'
+                    '</div>', unsafe_allow_html=True)
+            with c3:
+                st.markdown(
+                    '<div class="card card-alert">'
+                    '<div class="card-fam">Período anterior</div>'
+                    '<div class="card-num num-red" style="font-size:28px">'+str(v_ant)+'</div>'
+                    '<div class="card-row"><span class="c-lbl">tickets em atraso</span></div>'
+                    '</div>', unsafe_allow_html=True)
+            with c4:
+                v_val = df_evo["Valor em Atraso"].iloc[-1]
+                v_val_ant = df_evo["Valor em Atraso"].iloc[-2]
+                diff_val = v_val - v_val_ant
+                cor_val = '#ef5350' if diff_val > 0 else '#5aad7e'
+                seta_val = '↑' if diff_val > 0 else '↓'
+                st.markdown(
+                    '<div class="card card-alert">'
+                    '<div class="card-fam">Valor em atraso atual</div>'
+                    '<div class="card-num num-red" style="font-size:20px">'+fmt_r(v_val)+'</div>'
+                    '<div class="card-row"><span class="c-lbl">Variação</span><span class="c-val" style="color:'+cor_val+'">'+seta_val+' '+fmt_r(abs(diff_val))+'</span></div>'
+                    '</div>', unsafe_allow_html=True)
+
+            # ── Gráfico evolução total
+            st.markdown('<div class="sec-label" style="margin-top:20px">Evolução total — tickets em atraso</div>', unsafe_allow_html=True)
+            lb_total, cl_total = make_labels(df_evo['Em Atraso'])
+            st.plotly_chart(std_fig(df_evo['Data'], df_evo['Em Atraso'], '#ef5350', lb_total, cl_total, height=280), use_container_width=True)
+
+            # ── Gráfico por família
             st.markdown('<div class="sec-label">Evolução por família</div>', unsafe_allow_html=True)
             fig2 = go.Figure()
-            fig2.add_trace(go.Scatter(x=df_evo['Data'],y=df_evo['Energizados'],mode='lines+markers',name='Energizados',line={'color':'#5aad7e','width':2},marker={'size':8}))
-            fig2.add_trace(go.Scatter(x=df_evo['Data'],y=df_evo['AZA'],mode='lines+markers',name='AZA',line={'color':'#ffa726','width':2},marker={'size':8}))
-            fig2.add_trace(go.Scatter(x=df_evo['Data'],y=df_evo['iVolt'],mode='lines+markers',name='iVolt',line={'color':'#42a5f5','width':2},marker={'size':8}))
-            fig2.update_layout(paper_bgcolor='#0f0f0f',plot_bgcolor='#141414',height=260,margin={'l':20,'r':20,'t':10,'b':20},legend={'orientation':'h','x':0,'y':1.2,'font':{'color':'#888','size':11},'bgcolor':'rgba(0,0,0,0)'},xaxis={'gridcolor':'#1e1e1e','tickfont':{'color':'#888','size':12}},yaxis={'gridcolor':'#1a1a1a','tickfont':{'color':'#aaa','size':11}})
+            for fam_nome, fam_cor in [('Energizados','#5aad7e'),('AZA','#ffa726'),('iVolt','#42a5f5')]:
+                lb_f, cl_f = make_labels(df_evo[fam_nome])
+                fig2.add_trace(go.Scatter(x=df_evo['Data'], y=df_evo[fam_nome],
+                    mode='lines', name=fam_nome,
+                    line={'color':fam_cor,'width':2}, showlegend=True))
+                for i in range(len(df_evo)):
+                    fig2.add_trace(go.Scatter(
+                        x=[df_evo['Data'].iloc[i]], y=[df_evo[fam_nome].iloc[i]],
+                        mode='markers+text',
+                        marker={'size':7,'color':fam_cor},
+                        text=[lb_f[i]],
+                        textposition='top center',
+                        textfont={'color':cl_f[i],'size':10},
+                        showlegend=False, name=fam_nome
+                    ))
+            fig2.update_layout(
+                paper_bgcolor='#0f0f0f', plot_bgcolor='#141414',
+                height=300, margin={'l':20,'r':20,'t':50,'b':20},
+                legend={'orientation':'h','x':0,'y':1.15,'font':{'color':'#888','size':11},'bgcolor':'rgba(0,0,0,0)'},
+                xaxis={'gridcolor':'#1e1e1e','tickfont':{'color':'#888','size':11}},
+                yaxis={'gridcolor':'#1a1a1a','tickfont':{'color':'#aaa','size':11}}
+            )
             st.plotly_chart(fig2, use_container_width=True)
 
             st.markdown('<div class="sec-label">Histórico completo</div>', unsafe_allow_html=True)
