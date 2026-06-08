@@ -702,46 +702,49 @@ if st.session_state.get('pagina') == 'evolucao':
         st.info('Adicione mais de uma planilha na pasta dados/ para ver a evolução.')
     else:
         @st.cache_data
-        def calc_evolucao(keys_tuple):
-            resultados = []
-            for label in keys_tuple:
-                filepath = planilhas[label]
-                try:
-                    xl = pd.ExcelFile(filepath)
-                    sheets = [s for s in xl.sheet_names if s.startswith('Tickets - ')]
-                    dfs = []
-                    for sheet in sheets:
-                        df = pd.read_excel(filepath, sheet_name=sheet)
-                        forn = sheet.replace('Tickets - ','').strip()
-                        df['_Fornecedora'] = forn
-                        df['_Familia'] = get_familia(forn)
-                        dfs.append(df)
-                    d = pd.concat(dfs, ignore_index=True)
-                    d['_Setor'] = d['Setor'].fillna('').astype(str).str.strip() if 'Setor' in d.columns else ''
-                    d = d[d['_Setor'].isin(SETORES_VALIDOS)]
-                    d['_Valor'] = pd.to_numeric(
-                        d['Valor Total'].astype(str).str.replace('R$','',regex=False)
-                        .str.replace(' ','',regex=False).str.replace('.','',regex=False)
-                        .str.replace(',','.',regex=False), errors='coerce').fillna(0)
-                    d['_CriadoTS'] = pd.to_datetime(d['Criado Em'], errors='coerce')
-                    cut = d['_CriadoTS'].max()
-                    sla_td = pd.Timedelta(days=SLA_DAYS)
-                    status = d['Status'].fillna('').astype(str).str.strip()
-                    aberto = ~status.isin(['Cancelado','Finalizado'])
-                    d2 = d[d['_CriadoTS'] <= cut & aberto].copy() if False else d[(d['_CriadoTS'] <= cut) & aberto].copy()
-                    d2['_secs'] = cut - d2['_CriadoTS']
-                    atraso = d2[d2['_secs'] >= sla_td]
-                    total_at = len(atraso)
-                    valor_at = float(atraso['_Valor'].sum())
-                    en_at = int((atraso['_Familia']=='Energizados').sum())
-                    az_at = int((atraso['_Familia']=='AZA').sum())
-                    iv_at = int((atraso['_Familia']=='iVolt').sum())
-                    resultados.append({'Data':label,'Em Atraso':total_at,'Valor em Atraso':valor_at,'Energizados':en_at,'AZA':az_at,'iVolt':iv_at})
-                except:
-                    pass
-            return pd.DataFrame(resultados)
+        def calc_evo_single(label, filepath):
+            """Cacheia cada planilha individualmente — só reprocessa a nova."""
+            try:
+                xl = pd.ExcelFile(filepath)
+                sheets = [s for s in xl.sheet_names if s.startswith('Tickets - ')]
+                dfs = []
+                for sheet in sheets:
+                    df = pd.read_excel(filepath, sheet_name=sheet)
+                    forn = sheet.replace('Tickets - ','').strip()
+                    df['_Fornecedora'] = forn
+                    df['_Familia'] = get_familia(forn)
+                    dfs.append(df)
+                d = pd.concat(dfs, ignore_index=True)
+                d['_Setor'] = d['Setor'].fillna('').astype(str).str.strip() if 'Setor' in d.columns else ''
+                d = d[d['_Setor'].isin(SETORES_VALIDOS)]
+                d['_Valor'] = pd.to_numeric(
+                    d['Valor Total'].astype(str).str.replace('R$','',regex=False)
+                    .str.replace(' ','',regex=False).str.replace('.','',regex=False)
+                    .str.replace(',','.',regex=False), errors='coerce').fillna(0)
+                d['_CriadoTS'] = pd.to_datetime(d['Criado Em'], errors='coerce')
+                cut = d['_CriadoTS'].max()
+                sla_td = pd.Timedelta(days=SLA_DAYS)
+                status = d['Status'].fillna('').astype(str).str.strip()
+                aberto = ~status.isin(['Cancelado','Finalizado'])
+                d2 = d[(d['_CriadoTS'] <= cut) & aberto].copy()
+                d2['_secs'] = cut - d2['_CriadoTS']
+                atraso = d2[d2['_secs'] >= sla_td]
+                return {
+                    'Data': label,
+                    'Em Atraso': len(atraso),
+                    'Valor em Atraso': float(atraso['_Valor'].sum()),
+                    'Energizados': int((atraso['_Familia']=='Energizados').sum()),
+                    'AZA': int((atraso['_Familia']=='AZA').sum()),
+                    'iVolt': int((atraso['_Familia']=='iVolt').sum()),
+                }
+            except:
+                return None
 
-        df_evo = calc_evolucao(tuple(sorted(planilhas.keys())))
+        resultados = []
+        for label in sorted(planilhas.keys()):
+            r = calc_evo_single(label, planilhas[label])
+            if r: resultados.append(r)
+        df_evo = pd.DataFrame(resultados)
 
         if len(df_evo) >= 2:
             # ── Helpers de variação
