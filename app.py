@@ -722,7 +722,13 @@ if st.session_state.get('pagina') == 'evolucao':
                     .str.replace(' ','',regex=False).str.replace('.','',regex=False)
                     .str.replace(',','.',regex=False), errors='coerce').fillna(0)
                 d['_CriadoTS'] = pd.to_datetime(d['Criado Em'], errors='coerce')
-                cut = d['_CriadoTS'].max()
+                # Extrai data do nome do arquivo para cutoff correto
+                import re as _re
+                m = _re.search(r'(\d{4}-\d{2}-\d{2})', filepath)
+                if m:
+                    cut = pd.Timestamp(m.group(1)).replace(hour=23,minute=59,second=59)
+                else:
+                    cut = d['_CriadoTS'].max().replace(hour=23,minute=59,second=59)
                 sla_td = pd.Timedelta(days=SLA_DAYS)
                 status = d['Status'].fillna('').astype(str).str.strip()
                 aberto = ~status.isin(['Cancelado','Finalizado'])
