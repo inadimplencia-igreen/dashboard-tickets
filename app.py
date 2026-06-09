@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import re
 import os
 import io
@@ -207,9 +208,26 @@ def get_medias(data, forn):
         return v.iloc[0] if len(v)>0 else '-'
     return fv('_MediaResp'), fv('_MediaFin')
 
+def du_count(start, end):
+    """Conta dias úteis (seg-sex) entre duas datas. Retorna int."""
+    if pd.isna(start) or pd.isna(end): return 0
+    s = np.datetime64(start.date(), 'D')
+    e = np.datetime64(end.date(), 'D')
+    if e < s: return 0
+    return int(np.busday_count(s, e))
+
+def calc_responsabilidade(row):
+    """Classifica responsabilidade: Operações > Relacionamento > Não Atribuído."""
+    rel = str(row.get('BKO Relacionamentos','')).strip()
+    ops = str(row.get('BKO Operações','')).strip()
+    rel_ok = rel not in ['-','nan','','NaT']
+    ops_ok = ops not in ['-','nan','','NaT']
+    if ops_ok:   return 'Operações'
+    if rel_ok:   return 'Relacionamento'
+    return 'Não Atribuído'
+
 def calc_on_date(data, cutoff_date):
-    cut   = pd.Timestamp(cutoff_date).replace(hour=23, minute=59, second=59)
-    sla_s = pd.Timedelta(days=SLA_DAYS)
+    cut = pd.Timestamp(cutoff_date).replace(hour=23, minute=59, second=59)
 
     df = data[data['_CriadoTS'] <= cut].copy()
     df['_Status'] = df['Status'].fillna('').astype(str).str.strip()
@@ -218,14 +236,25 @@ def calc_on_date(data, cutoff_date):
     finalizado = df['_Status'] == 'Finalizado'
     aberto     = ~cancelado & ~finalizado
 
-    df['_SecsAberto'] = (cut - df['_CriadoTS'])
+    # Dias úteis para abertos (criação → cutoff)
+    du_aberto = df['_CriadoTS'].apply(lambda c: du_count(c, cut) if pd.notna(c) else 0)
 
     fin_valida = finalizado & df['_FinalizadoTS'].notna() & (df['_FinalizadoTS'] <= cut)
-    secs_fin = (df['_FinalizadoTS'] - df['_CriadoTS']).where(fin_valida)
+    # Dias úteis para finalizados (criação → finalização)
+    du_fin = df.apply(
+        lambda r: du_count(r['_CriadoTS'], r['_FinalizadoTS']) if fin_valida[r.name] else 0, axis=1
+    )
 
-    at_aberto  = aberto    & (df['_SecsAberto'] >= sla_s)
-    at_fin     = fin_valida & (secs_fin          >= sla_s)
+    at_aberto    = aberto    & (du_aberto >= SLA_DAYS)
+    at_fin       = fin_valida & (du_fin    >= SLA_DAYS)
     fin_sem_data = finalizado & (~fin_valida)
+
+    # Responsabilidade
+    resp_col = 'BKO Relacionamentos' in df.columns and 'BKO Operações' in df.columns
+    if resp_col:
+        df['Responsabilidade'] = df.apply(calc_responsabilidade, axis=1)
+    else:
+        df['Responsabilidade'] = 'Não Atribuído'
 
     df['Cancelado'] = cancelado
     df['Atraso']    = at_aberto
@@ -234,7 +263,7 @@ def calc_on_date(data, cutoff_date):
     df['EncPrazo']  = (fin_valida & ~at_fin) | fin_sem_data
 
     return df[['_Fornecedora','_Familia','_Setor','_Tipo','_Atribuido','_Valor',
-               'Cancelado','Atraso','NoPrazo','EncAtraso','EncPrazo']].rename(columns={
+               'Cancelado','Atraso','NoPrazo','EncAtraso','EncPrazo','Responsabilidade']].rename(columns={
         '_Fornecedora':'Fornecedora','_Familia':'Familia','_Setor':'Setor',
         '_Tipo':'Tipo','_Atribuido':'Atribuido','_Valor':'Valor'
     })
@@ -334,9 +363,18 @@ def render_dashboard(tickets, data, titulo, subtitulo):
     n_cols = 6 if (is_setor and fm_sf is not None) else 5
     cols = st.columns(n_cols)
 
+    det_key = 'det_resp_' + subtitulo.replace(' ','_')
+    if det_key not in st.session_state:
+        st.session_state[det_key] = set()
+
     for i, fam in enumerate(['Energizados','AZA','iVolt']):
         fd = fam_data[fam]; fm = fd['m']
         sub_val = fd['maior'] + ' (' + str(fd['maior_n']) + ')' if fd['maior'] != '-' else '-'
+        ft_fam  = tickets[(tickets['Familia']==fam) & tickets['Atraso']]
+        n_ops   = int((ft_fam['Responsabilidade']=='Operações').sum())
+        n_rel   = int((ft_fam['Responsabilidade']=='Relacionamento').sum())
+        n_nat   = int((ft_fam['Responsabilidade']=='Não Atribuído').sum())
+        exp_fam = fam in st.session_state[det_key]
         with cols[i]:
             st.markdown(
                 '<div class="card card-alert">'
@@ -348,6 +386,20 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                 '<div class="card-row"><span class="c-lbl">Valor em atraso</span><span class="c-val">' + fmt_r(fm['atraso_v']) + '</span></div>'
                 '<div class="card-hl"><span class="hl-lbl">Valor total família</span><span class="hl-val">' + fmt_r(fm['valor']) + '</span></div>'
                 '</div>', unsafe_allow_html=True)
+            lbl_det = '▲ Recolher' if exp_fam else '▼ Ver responsabilidade'
+            if st.button(lbl_det, key='det_resp_'+fam+'_'+subtitulo.replace(' ','_'),
+                         type='secondary', use_container_width=True):
+                if exp_fam: st.session_state[det_key].discard(fam)
+                else:       st.session_state[det_key].add(fam)
+                st.rerun()
+            if exp_fam:
+                st.markdown(
+                    '<div style="background:#111;border:1px solid #1e1e1e;border-radius:8px;padding:10px;margin-top:4px">'
+                    '<div style="font-size:10px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Responsabilidade — em atraso</div>'
+                    '<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-top:1px solid #1e1e1e"><span style="color:#888">⚙ Operações</span><span style="font-weight:600;color:#42a5f5">' + str(n_ops) + '</span></div>'
+                    '<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-top:1px solid #1e1e1e"><span style="color:#888">🤝 Relacionamento</span><span style="font-weight:600;color:#ffa726">' + str(n_rel) + '</span></div>'
+                    '<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-top:1px solid #1e1e1e"><span style="color:#888">— Não Atribuído</span><span style="font-weight:600;color:#777">' + str(n_nat) + '</span></div>'
+                    '</div>', unsafe_allow_html=True)
 
     # Card Sem Fornecedora — só em setores
     if is_setor and fm_sf is not None:
