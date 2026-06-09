@@ -348,6 +348,25 @@ def make_excel_completo(data, codigos, setor=None):
     out.seek(0)
     return out
 
+def make_excel_detalhamento(data, indices):
+    """Exporta apenas colunas relevantes do detalhamento."""
+    df_orig = data.loc[data.index.isin(indices)].copy()
+    # Colunas desejadas na ordem
+    colunas_base = ['Código','_Fornecedora','_Setor','Tipo','Status',
+                    'BKO Relacionamentos','BKO Operações','Valor Total']
+    colunas = [c for c in colunas_base if c in df_orig.columns]
+    df_exp = df_orig[colunas].copy()
+    df_exp = df_exp.rename(columns={
+        '_Fornecedora': 'Fornecedora',
+        '_Setor': 'Setor',
+    })
+    df_exp['Responsabilidade'] = df_orig.apply(calc_responsabilidade, axis=1).values
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine='openpyxl') as w:
+        df_exp.to_excel(w, index=False, sheet_name='Tickets')
+    out.seek(0)
+    return out
+
 def render_dashboard(tickets, data, titulo, subtitulo):
     m          = agg(tickets)
     total      = m['total']
@@ -421,6 +440,8 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                     '<div style="font-size:10px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Responsabilidade — em atraso</div>'
                     '</div>', unsafe_allow_html=True)
 
+                rows_html = ''
+                resp_excels = {}
                 for resp_label, resp_cor, resp_icon in [
                     ('Operações','#42a5f5','⚙'),
                     ('Relacionamento','#ffa726','🤝'),
@@ -432,28 +453,29 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                         (tickets['Responsabilidade']==resp_label)
                     ]
                     n_resp = len(df_resp)
-                    # Busca tickets completos da base original
-                    codigos_resp = data[
-                        (data['_Familia']==fam) &
-                        (data['_Setor'].isin(SETORES_VALIDOS) if subtitulo=='Consolidado — todos os setores' else data['_Setor']==subtitulo) &
-                        (data.apply(calc_responsabilidade, axis=1)==resp_label)
-                    ]['Código'].astype(str).tolist()
-                    excel_data = make_excel_completo(data, codigos_resp, subtitulo) if n_resp > 0 else None
-                    col_txt, col_num, col_btn = st.columns([5, 1, 1])
-                    with col_txt:
-                        st.markdown(f'<p style="font-size:11px;color:#888;margin:6px 0">{resp_icon} {resp_label}</p>', unsafe_allow_html=True)
-                    with col_num:
-                        st.markdown(f'<p style="font-size:11px;font-weight:600;color:{resp_cor};margin:6px 0;text-align:right">{n_resp}</p>', unsafe_allow_html=True)
-                    with col_btn:
-                        if excel_data:
-                            st.download_button(
-                                label='⬇',
-                                data=excel_data,
-                                file_name=f'{fam}_{resp_label}.xlsx',
-                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                                key=f'exp_{fam}_{resp_label}_{subtitulo[:8]}',
-                                use_container_width=True,
-                            )
+                    resp_excels[resp_label] = make_excel_detalhamento(data, df_resp.index) if n_resp > 0 else None
+                    rows_html += (
+                        f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                        f'font-size:11px;padding:5px 0;border-top:1px solid #1e1e1e">'
+                        f'<span style="color:#888">{resp_icon} {resp_label}</span>'
+                        f'<span style="font-weight:600;color:{resp_cor}">{n_resp}</span>'
+                        f'</div>'
+                    )
+                st.markdown(rows_html, unsafe_allow_html=True)
+                for resp_label, resp_cor, resp_icon in [
+                    ('Operações','#42a5f5','⚙'),
+                    ('Relacionamento','#ffa726','🤝'),
+                    ('Não Atribuído','#777','—'),
+                ]:
+                    if resp_excels[resp_label]:
+                        st.download_button(
+                            label=f'⬇ {resp_icon} {resp_label}',
+                            data=resp_excels[resp_label],
+                            file_name=f'{fam}_{resp_label}.xlsx',
+                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            key=f'exp_{fam}_{resp_label}_{subtitulo[:8]}',
+                            use_container_width=True,
+                        )
 
     # Card Sem Fornecedora — só em setores
     if is_setor and fm_sf is not None:
@@ -502,11 +524,8 @@ def render_dashboard(tickets, data, titulo, subtitulo):
         ]:
             df_resp_tot = ft_at[ft_at['Responsabilidade']==resp_label]
             n_resp_tot = len(df_resp_tot)
-            codigos_tot = data[
-                (data['_Setor'].isin(SETORES_VALIDOS)) &
-                (data.apply(calc_responsabilidade, axis=1)==resp_label)
-            ]['Código'].astype(str).tolist()
-            excel_tot = make_excel_completo(data, codigos_tot, subtitulo) if n_resp_tot > 0 else None
+            codigos_tot = ft_at[ft_at['Responsabilidade']==resp_label].index.tolist()
+            excel_tot = make_excel_detalhamento(data, codigos_tot) if n_resp_tot > 0 else None
             col_txt, col_num, col_btn = st.columns([5, 1, 1])
             with col_txt:
                 st.markdown(f'<p style="font-size:11px;color:#888;margin:6px 0">{resp_icon} {resp_label}</p>', unsafe_allow_html=True)
