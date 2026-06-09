@@ -333,6 +333,21 @@ def make_excel(df_resp):
     out.seek(0)
     return out
 
+def make_excel_completo(data, codigos, setor=None):
+    """Busca os tickets completos da base original pelos códigos."""
+    mask = data['Código'].astype(str).isin([str(c) for c in codigos])
+    if setor and setor != 'Consolidado — todos os setores':
+        mask = mask & (data['_Setor'] == setor)
+    df_exp = data[mask].copy()
+    # Remove colunas internas
+    cols = [c for c in df_exp.columns if not c.startswith('_')]
+    df_exp = df_exp[cols]
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine='openpyxl') as w:
+        df_exp.to_excel(w, index=False, sheet_name='Tickets')
+    out.seek(0)
+    return out
+
 def render_dashboard(tickets, data, titulo, subtitulo):
     m          = agg(tickets)
     total      = m['total']
@@ -417,8 +432,13 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                         (tickets['Responsabilidade']==resp_label)
                     ]
                     n_resp = len(df_resp)
-                    cols_export = [c for c in df_resp.columns if not c.startswith('_')]
-                    excel_data = make_excel(df_resp[cols_export]) if n_resp > 0 else None
+                    # Busca tickets completos da base original
+                    codigos_resp = data[
+                        (data['_Familia']==fam) &
+                        (data['_Setor'].isin(SETORES_VALIDOS) if subtitulo=='Consolidado — todos os setores' else data['_Setor']==subtitulo) &
+                        (data.apply(calc_responsabilidade, axis=1)==resp_label)
+                    ]['Código'].astype(str).tolist()
+                    excel_data = make_excel_completo(data, codigos_resp, subtitulo) if n_resp > 0 else None
                     col_txt, col_num, col_btn = st.columns([5, 1, 1])
                     with col_txt:
                         st.markdown(f'<p style="font-size:11px;color:#888;margin:6px 0">{resp_icon} {resp_label}</p>', unsafe_allow_html=True)
@@ -482,8 +502,11 @@ def render_dashboard(tickets, data, titulo, subtitulo):
         ]:
             df_resp_tot = ft_at[ft_at['Responsabilidade']==resp_label]
             n_resp_tot = len(df_resp_tot)
-            cols_exp = [c for c in df_resp_tot.columns if not c.startswith('_')]
-            excel_tot = make_excel(df_resp_tot[cols_exp]) if n_resp_tot > 0 else None
+            codigos_tot = data[
+                (data['_Setor'].isin(SETORES_VALIDOS)) &
+                (data.apply(calc_responsabilidade, axis=1)==resp_label)
+            ]['Código'].astype(str).tolist()
+            excel_tot = make_excel_completo(data, codigos_tot, subtitulo) if n_resp_tot > 0 else None
             col_txt, col_num, col_btn = st.columns([5, 1, 1])
             with col_txt:
                 st.markdown(f'<p style="font-size:11px;color:#888;margin:6px 0">{resp_icon} {resp_label}</p>', unsafe_allow_html=True)
