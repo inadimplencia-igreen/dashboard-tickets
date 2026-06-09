@@ -419,24 +419,21 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                     n_resp = len(df_resp)
                     cols_export = [c for c in df_resp.columns if not c.startswith('_')]
                     excel_data = make_excel(df_resp[cols_export]) if n_resp > 0 else None
-                    html_row = (
-                        f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                        f'font-size:11px;padding:4px 0;border-top:1px solid #1e1e1e">'
-                        f'<span style="color:#888">{resp_icon} {resp_label}</span>'
-                        f'<span style="font-weight:600;color:{resp_cor};margin-left:auto;margin-right:8px">{n_resp}</span>'
-                        f'</div>'
-                    )
-                    st.markdown(html_row, unsafe_allow_html=True)
-                    if excel_data:
-                        st.download_button(
-                            label='⬇',
-                            data=excel_data,
-                            file_name=f'{fam}_{resp_label}.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                            key=f'exp_{fam}_{resp_label}_{subtitulo[:8]}',
-                            use_container_width=False,
-                        )
-                    st.markdown('<style>div[data-testid="stDownloadButton"] button{padding:1px 6px!important;font-size:10px!important;min-height:0!important;height:20px!important;margin-top:-28px!important;float:right;}</style>', unsafe_allow_html=True)
+                    col_txt, col_num, col_btn = st.columns([5, 1, 1])
+                    with col_txt:
+                        st.markdown(f'<p style="font-size:11px;color:#888;margin:6px 0">{resp_icon} {resp_label}</p>', unsafe_allow_html=True)
+                    with col_num:
+                        st.markdown(f'<p style="font-size:11px;font-weight:600;color:{resp_cor};margin:6px 0;text-align:right">{n_resp}</p>', unsafe_allow_html=True)
+                    with col_btn:
+                        if excel_data:
+                            st.download_button(
+                                label='⬇',
+                                data=excel_data,
+                                file_name=f'{fam}_{resp_label}.xlsx',
+                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                key=f'exp_{fam}_{resp_label}_{subtitulo[:8]}',
+                                use_container_width=True,
+                            )
 
     # Card Sem Fornecedora — só em setores
     if is_setor and fm_sf is not None:
@@ -487,21 +484,21 @@ def render_dashboard(tickets, data, titulo, subtitulo):
             n_resp_tot = len(df_resp_tot)
             cols_exp = [c for c in df_resp_tot.columns if not c.startswith('_')]
             excel_tot = make_excel(df_resp_tot[cols_exp]) if n_resp_tot > 0 else None
-            st.markdown(
-                f'<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:4px 0;border-top:1px solid #1e1e1e">'
-                f'<span style="color:#888">{resp_icon} {resp_label}</span>'
-                f'<span style="font-weight:600;color:{resp_cor};margin-left:auto;margin-right:8px">{n_resp_tot}</span>'
-                f'</div>', unsafe_allow_html=True)
-            if excel_tot:
-                st.download_button(
-                    label='⬇',
-                    data=excel_tot,
-                    file_name=f'Total_{resp_label}.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    key=f'exp_tot_{resp_label}_{subtitulo[:8]}',
-                    use_container_width=False,
-                )
-            st.markdown('<style>div[data-testid="stDownloadButton"] button{padding:1px 6px!important;font-size:10px!important;min-height:0!important;height:20px!important;margin-top:-28px!important;float:right;}</style>', unsafe_allow_html=True)
+            col_txt, col_num, col_btn = st.columns([5, 1, 1])
+            with col_txt:
+                st.markdown(f'<p style="font-size:11px;color:#888;margin:6px 0">{resp_icon} {resp_label}</p>', unsafe_allow_html=True)
+            with col_num:
+                st.markdown(f'<p style="font-size:11px;font-weight:600;color:{resp_cor};margin:6px 0;text-align:right">{n_resp_tot}</p>', unsafe_allow_html=True)
+            with col_btn:
+                if excel_tot:
+                    st.download_button(
+                        label='⬇',
+                        data=excel_tot,
+                        file_name=f'Total_{resp_label}.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        key=f'exp_tot_{resp_label}_{subtitulo[:8]}',
+                        use_container_width=True,
+                    )
 
     with cols[cancel_col]:
         st.markdown(
