@@ -440,8 +440,6 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                     '<div style="font-size:10px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Responsabilidade — em atraso</div>'
                     '</div>', unsafe_allow_html=True)
 
-                rows_html = ''
-                resp_excels = {}
                 for resp_label, resp_cor, resp_icon in [
                     ('Operações','#42a5f5','⚙'),
                     ('Relacionamento','#ffa726','🤝'),
@@ -453,29 +451,22 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                         (tickets['Responsabilidade']==resp_label)
                     ]
                     n_resp = len(df_resp)
-                    resp_excels[resp_label] = make_excel_detalhamento(data, df_resp.index) if n_resp > 0 else None
-                    rows_html += (
-                        f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                        f'font-size:11px;padding:5px 0;border-top:1px solid #1e1e1e">'
-                        f'<span style="color:#888">{resp_icon} {resp_label}</span>'
-                        f'<span style="font-weight:600;color:{resp_cor}">{n_resp}</span>'
-                        f'</div>'
-                    )
-                st.markdown(rows_html, unsafe_allow_html=True)
-                for resp_label, resp_cor, resp_icon in [
-                    ('Operações','#42a5f5','⚙'),
-                    ('Relacionamento','#ffa726','🤝'),
-                    ('Não Atribuído','#777','—'),
-                ]:
-                    if resp_excels[resp_label]:
-                        st.download_button(
-                            label=f'⬇ {resp_icon} {resp_label}',
-                            data=resp_excels[resp_label],
-                            file_name=f'{fam}_{resp_label}.xlsx',
-                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                            key=f'exp_{fam}_{resp_label}_{subtitulo[:8]}',
-                            use_container_width=True,
-                        )
+                    excel_data = make_excel_detalhamento(data, df_resp.index) if n_resp > 0 else None
+                    col_txt, col_num, col_btn = st.columns([5, 1, 1])
+                    with col_txt:
+                        st.markdown(f'<p style="font-size:11px;color:#888;margin:4px 0">{resp_icon} {resp_label}</p>', unsafe_allow_html=True)
+                    with col_num:
+                        st.markdown(f'<p style="font-size:11px;font-weight:600;color:{resp_cor};margin:4px 0;text-align:right">{n_resp}</p>', unsafe_allow_html=True)
+                    with col_btn:
+                        if excel_data:
+                            st.download_button(
+                                label='⬇',
+                                data=excel_data,
+                                file_name=f'{fam}_{resp_label}.xlsx',
+                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                key=f'exp_{fam}_{resp_label}_{subtitulo[:8]}',
+                                use_container_width=True,
+                            )
 
     # Card Sem Fornecedora — só em setores
     if is_setor and fm_sf is not None:
