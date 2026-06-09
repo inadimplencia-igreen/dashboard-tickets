@@ -20,6 +20,7 @@ html,body,[data-testid="stAppViewContainer"],[data-testid="stMain"]{
 button[kind="primary"]{background:#2e7d52!important;color:#fff!important;font-weight:700!important;border:none!important;border-radius:6px!important;}
 button[kind="secondary"]{background:#1a1a1a!important;color:#777!important;font-weight:500!important;border:1px solid #252525!important;border-radius:6px!important;}
 button[kind="secondary"]:hover{border-color:#2e7d52!important;color:#5aad7e!important;}
+[data-testid="stDownloadButton"] button{padding:2px 8px!important;font-size:11px!important;min-height:0!important;height:24px!important;line-height:1!important;}
 hr{border-color:#1e1e1e!important;}
 .ig-header{background:#141414;border:1px solid #1e1e1e;border-radius:10px;padding:16px 22px;
   display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;border-left:3px solid #2e7d52;}
@@ -325,6 +326,13 @@ def render_top_motivos(tickets):
         with cols[i]:
             st.markdown(html, unsafe_allow_html=True)
 
+def make_excel(df_resp):
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine='openpyxl') as w:
+        df_resp.to_excel(w, index=False, sheet_name='Tickets')
+    out.seek(0)
+    return out
+
 def render_dashboard(tickets, data, titulo, subtitulo):
     m          = agg(tickets)
     total      = m['total']
@@ -398,13 +406,6 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                     '<div style="font-size:10px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Responsabilidade — em atraso</div>'
                     '</div>', unsafe_allow_html=True)
 
-                def make_excel(df_resp):
-                    out = io.BytesIO()
-                    with pd.ExcelWriter(out, engine='openpyxl') as w:
-                        df_resp.to_excel(w, index=False, sheet_name='Tickets')
-                    out.seek(0)
-                    return out
-
                 for resp_label, resp_cor, resp_icon in [
                     ('Operações','#42a5f5','⚙'),
                     ('Relacionamento','#ffa726','🤝'),
@@ -416,22 +417,26 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                         (tickets['Responsabilidade']==resp_label)
                     ]
                     n_resp = len(df_resp)
-                    c_lbl, c_num, c_btn = st.columns([5,2,1])
-                    with c_lbl:
-                        st.markdown(f'<span style="font-size:12px;color:#888">{resp_icon} {resp_label}</span>', unsafe_allow_html=True)
-                    with c_num:
-                        st.markdown(f'<span style="font-size:12px;font-weight:600;color:{resp_cor}">{n_resp}</span>', unsafe_allow_html=True)
-                    with c_btn:
-                        if n_resp > 0:
-                            cols_export = [c for c in df_resp.columns if not c.startswith('_')]
-                            st.download_button(
-                                label='⬆',
-                                data=make_excel(df_resp[cols_export]),
-                                file_name=f'{fam}_{resp_label}.xlsx',
-                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                                key=f'exp_{fam}_{resp_label}_{subtitulo[:8]}',
-                                use_container_width=False,
-                            )
+                    cols_export = [c for c in df_resp.columns if not c.startswith('_')]
+                    excel_data = make_excel(df_resp[cols_export]) if n_resp > 0 else None
+                    html_row = (
+                        f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                        f'font-size:11px;padding:4px 0;border-top:1px solid #1e1e1e">'
+                        f'<span style="color:#888">{resp_icon} {resp_label}</span>'
+                        f'<span style="font-weight:600;color:{resp_cor};margin-left:auto;margin-right:8px">{n_resp}</span>'
+                        f'</div>'
+                    )
+                    st.markdown(html_row, unsafe_allow_html=True)
+                    if excel_data:
+                        st.download_button(
+                            label='⬇',
+                            data=excel_data,
+                            file_name=f'{fam}_{resp_label}.xlsx',
+                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            key=f'exp_{fam}_{resp_label}_{subtitulo[:8]}',
+                            use_container_width=False,
+                        )
+                    st.markdown('<style>div[data-testid="stDownloadButton"] button{padding:1px 6px!important;font-size:10px!important;min-height:0!important;height:20px!important;margin-top:-28px!important;float:right;}</style>', unsafe_allow_html=True)
 
     # Card Sem Fornecedora — só em setores
     if is_setor and fm_sf is not None:
@@ -472,10 +477,31 @@ def render_dashboard(tickets, data, titulo, subtitulo):
         st.markdown(
             '<div style="background:#111;border:1px solid #1e1e1e;border-radius:8px;padding:10px;margin-top:4px">'
             '<div style="font-size:10px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Responsabilidade — total</div>'
-            '<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-top:1px solid #1e1e1e"><span style="color:#888">⚙ Operações</span><span style="font-weight:600;color:#42a5f5">' + str(n_ops_tot) + '</span></div>'
-            '<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-top:1px solid #1e1e1e"><span style="color:#888">🤝 Relacionamento</span><span style="font-weight:600;color:#ffa726">' + str(n_rel_tot) + '</span></div>'
-            '<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-top:1px solid #1e1e1e"><span style="color:#888">— Não Atribuído</span><span style="font-weight:600;color:#777">' + str(n_nat_tot) + '</span></div>'
             '</div>', unsafe_allow_html=True)
+        for resp_label, resp_cor, resp_icon in [
+            ('Operações','#42a5f5','⚙'),
+            ('Relacionamento','#ffa726','🤝'),
+            ('Não Atribuído','#777','—'),
+        ]:
+            df_resp_tot = ft_at[ft_at['Responsabilidade']==resp_label]
+            n_resp_tot = len(df_resp_tot)
+            cols_exp = [c for c in df_resp_tot.columns if not c.startswith('_')]
+            excel_tot = make_excel(df_resp_tot[cols_exp]) if n_resp_tot > 0 else None
+            st.markdown(
+                f'<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:4px 0;border-top:1px solid #1e1e1e">'
+                f'<span style="color:#888">{resp_icon} {resp_label}</span>'
+                f'<span style="font-weight:600;color:{resp_cor};margin-left:auto;margin-right:8px">{n_resp_tot}</span>'
+                f'</div>', unsafe_allow_html=True)
+            if excel_tot:
+                st.download_button(
+                    label='⬇',
+                    data=excel_tot,
+                    file_name=f'Total_{resp_label}.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    key=f'exp_tot_{resp_label}_{subtitulo[:8]}',
+                    use_container_width=False,
+                )
+            st.markdown('<style>div[data-testid="stDownloadButton"] button{padding:1px 6px!important;font-size:10px!important;min-height:0!important;height:20px!important;margin-top:-28px!important;float:right;}</style>', unsafe_allow_html=True)
 
     with cols[cancel_col]:
         st.markdown(
