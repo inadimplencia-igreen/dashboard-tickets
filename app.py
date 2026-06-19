@@ -539,10 +539,11 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                 tbl_html += '</tbody></table>'
                 st.markdown(tbl_html, unsafe_allow_html=True)
 
-                if excel_abas:
+                if excel_abas and any(len(v)>0 for v in excel_abas.values()):
                     out = io.BytesIO()
                     with pd.ExcelWriter(out, engine='openpyxl') as w:
                         for aba_nome, df_aba in excel_abas.items():
+                            if len(df_aba) == 0: continue
                             cols_disp = [c for c in ['Código','_Fornecedora','_Setor','Tipo','Status',
                                          'Fila Atual','BKO Relacionamentos','BKO Operações','Valor Total']
                                          if c in df_aba.columns]
@@ -628,10 +629,11 @@ def render_dashboard(tickets, data, titulo, subtitulo):
         tbl_tot_html += '</tbody></table>'
         st.markdown(tbl_tot_html, unsafe_allow_html=True)
 
-        if excel_abas_tot:
+        if excel_abas_tot and any(len(v)>0 for v in excel_abas_tot.values()):
             out_tot = io.BytesIO()
             with pd.ExcelWriter(out_tot, engine='openpyxl') as w:
                 for aba_nome, df_aba in excel_abas_tot.items():
+                    if len(df_aba) == 0: continue
                     cols_disp = [c for c in ['Código','_Fornecedora','_Setor','Tipo','Status',
                                  'Fila Atual','BKO Relacionamentos','BKO Operações','Valor Total']
                                  if c in df_aba.columns]
