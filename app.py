@@ -263,46 +263,27 @@ def du_count(start, end):
     if e < s: return 0
     return int(np.busday_count(s, e))
 
-# Mapeamento BKO col → label
-BKO_COLS = [
-    ('BKO Operações',              'Operações'),
-    ('BKO Relacionamentos',        'Relacionamento'),
-    ('BKO Contratos',              'Contratos'),
-    ('BKO Suporte ao Cliente',     'Suporte ao Cliente'),
-    ('BKO ReclameAQUI',            'ReclameAQUI'),
-    ('BKO Experiência do Cliente', 'Experiência do Cliente'),
-    ('BKO Meet Call',              'Meet Call'),
-    ('BKO Suporte ao Licenciado',  'Suporte ao Licenciado'),
-    ('BKO Inadimplência',          'Inadimplência'),
+# Colunas BKO para verificar atribuição
+BKO_COLS_ATRIB = [
+    'BKO Operações','BKO Relacionamentos','BKO Contratos',
+    'BKO Suporte ao Cliente','BKO ReclameAQUI','BKO Experiência do Cliente',
+    'BKO Meet Call','BKO Suporte ao Licenciado','BKO Inadimplência',
 ]
-BKO_ICONES = {
-    'Operações':'⚙','Relacionamento':'🤝','Contratos':'📋',
-    'Suporte ao Cliente':'💬','ReclameAQUI':'⭐','Experiência do Cliente':'🔧',
-    'Meet Call':'📞','Suporte ao Licenciado':'📄','Inadimplência':'📌',
-    'Não Atribuído':'—'
-}
 
 def calc_responsabilidade(row):
-    """Classifica pelo BKO com data de atribuição mais recente."""
-    candidatos = []
-    for col, label in BKO_COLS:
+    """Retorna a Fila Atual do ticket."""
+    fila = str(row.get('Fila Atual','')).strip()
+    if fila in ['-','nan','','NaT']:
+        return 'Sem Fila'
+    return fila
+
+def tem_bko_atrib(row):
+    """Verifica se o ticket tem algum agente BKO atribuído."""
+    for col in BKO_COLS_ATRIB:
         if col not in row.index: continue
-        val = str(row.get(col,'')).strip()
-        if val in ['-','nan','','NaT']: continue
-        # Busca data de atribuição
-        date_col = col + ' - Atribuído em'
-        data_attr = pd.NaT
-        if date_col in row.index:
-            try:
-                data_attr = pd.to_datetime(row[date_col], errors='coerce')
-            except:
-                data_attr = pd.NaT
-        candidatos.append((label, data_attr))
-    if not candidatos:
-        return 'Não Atribuído'
-    # Ordena por data mais recente (NaT vai para o final)
-    candidatos.sort(key=lambda x: x[1] if pd.notna(x[1]) else pd.Timestamp.min, reverse=True)
-    return candidatos[0][0]
+        if str(row[col]).strip() not in ['-','nan','','NaT']:
+            return True
+    return False
 
 def calc_on_date(data, cutoff_date):
     cut = pd.Timestamp(cutoff_date).replace(hour=23, minute=59, second=59)
@@ -334,16 +315,25 @@ def calc_on_date(data, cutoff_date):
     else:
         df['Responsabilidade'] = 'Não Atribuído'
 
+    # Responsabilidade = Fila Atual
+    resp_col = 'Fila Atual' in df.columns
+    if resp_col:
+        df['Responsabilidade'] = df.apply(calc_responsabilidade, axis=1)
+        df['_AtribBKO'] = df.apply(tem_bko_atrib, axis=1)
+    else:
+        df['Responsabilidade'] = 'Sem Fila'
+        df['_AtribBKO'] = False
+
     df['Cancelado'] = cancelado
     df['Atraso']    = at_aberto
     df['NoPrazo']   = aberto & ~at_aberto
     df['EncAtraso'] = at_fin
     df['EncPrazo']  = (fin_valida & ~at_fin) | fin_sem_data
 
-    return df[['_Fornecedora','_Familia','_Setor','_Tipo','_Atribuido','_Valor',
+    return df[['_Fornecedora','_Familia','_Setor','_Tipo','_Atribuido','_AtribBKO','_Valor',
                'Cancelado','Atraso','NoPrazo','EncAtraso','EncPrazo','Responsabilidade']].rename(columns={
         '_Fornecedora':'Fornecedora','_Familia':'Familia','_Setor':'Setor',
-        '_Tipo':'Tipo','_Atribuido':'Atribuido','_Valor':'Valor'
+        '_Tipo':'Tipo','_Atribuido':'Atribuido','_AtribBKO':'AtribBKO','_Valor':'Valor'
     })
 
 def agg(df):
@@ -517,57 +507,54 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                     '<div style="font-size:10px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Responsabilidade — em atraso</div>'
                     '</div>', unsafe_allow_html=True)
 
-                # Monta detalhamento por todos BKOs
-                cores_resp = {
-                    'Operações':'#42a5f5','Relacionamento':'#ffa726',
-                    'Contratos':'#ab47bc','Suporte ao Cliente':'#26a69a',
-                    'ReclameAQUI':'#ef5350','Experiência do Cliente':'#66bb6a',
-                    'Meet Call':'#ffa726','Suporte ao Licenciado':'#8d6e63',
-                    'Inadimplência':'#78909c','Não Atribuído':'#555'
-                }
-                rows_html = ''
+                # Detalhamento por Fila Atual com Atribuído/Não Atribuído
+                ft_fam_at = tickets[(tickets['Familia']==fam) & tickets['Atraso']]
+                filas_ord = sorted(ft_fam_at['Responsabilidade'].unique().tolist(),
+                                   key=lambda f: -len(ft_fam_at[ft_fam_at['Responsabilidade']==f]))
+
+                tbl_html = (
+                    '<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px">'
+                    '<thead><tr>'
+                    '<th style="text-align:left;color:#5aad7e;padding:3px 4px;font-size:10px">FILA ATUAL</th>'
+                    '<th style="text-align:right;color:#5aad7e;padding:3px 4px;font-size:10px">TOTAL</th>'
+                    '<th style="text-align:right;color:#5aad7e;padding:3px 4px;font-size:10px">ATRIB.</th>'
+                    '<th style="text-align:right;color:#ef5350;padding:3px 4px;font-size:10px">N.ATRIB.</th>'
+                    '</tr></thead><tbody>'
+                )
                 excel_abas = {}
-                for col_bko, resp_label in BKO_COLS + [('', 'Não Atribuído')]:
-                    df_resp = tickets[
-                        (tickets['Familia']==fam) &
-                        tickets['Atraso'] &
-                        (tickets['Responsabilidade']==resp_label)
-                    ]
-                    n_resp = len(df_resp)
-                    if n_resp == 0: continue
-                    icone = BKO_ICONES.get(resp_label,'—')
-                    cor = cores_resp.get(resp_label,'#888')
-                    rows_html += (
-                        f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                        f'font-size:11px;padding:4px 0;border-top:1px solid #1e1e1e">'
-                        f'<span style="color:#888">{icone} {resp_label}</span>'
-                        f'<span style="font-weight:600;color:{cor}">{n_resp}</span>'
-                        f'</div>'
+                for fila in filas_ord:
+                    df_fila = ft_fam_at[ft_fam_at['Responsabilidade']==fila]
+                    n_tot = len(df_fila)
+                    n_at  = int(df_fila['AtribBKO'].sum())
+                    n_nat = n_tot - n_at
+                    tbl_html += (
+                        f'<tr style="border-top:1px solid #1e1e1e">'
+                        f'<td style="color:#aaa;padding:4px">{fila}</td>'
+                        f'<td style="color:#ccc;font-weight:600;text-align:right;padding:4px">{n_tot}</td>'
+                        f'<td style="color:#5aad7e;font-weight:600;text-align:right;padding:4px">{n_at}</td>'
+                        f'<td style="color:#ef5350;font-weight:600;text-align:right;padding:4px">{n_nat}</td>'
+                        f'</tr>'
                     )
-                    excel_abas[resp_label] = data.loc[data.index.isin(df_resp.index)].copy()
+                    excel_abas[fila] = data.loc[data.index.isin(df_fila.index)].copy()
+                tbl_html += '</tbody></table>'
+                st.markdown(tbl_html, unsafe_allow_html=True)
 
-                st.markdown(rows_html, unsafe_allow_html=True)
-
-                # Botão único que baixa Excel com uma aba por responsabilidade
                 if excel_abas:
                     out = io.BytesIO()
                     with pd.ExcelWriter(out, engine='openpyxl') as w:
                         for aba_nome, df_aba in excel_abas.items():
-                            cols_exp = ['Código','_Fornecedora','_Setor','Tipo','Status',
-                                        'BKO Relacionamentos','BKO Operações','Valor Total']
-                            cols_exp += [c for c in BKO_ICONES.keys() 
-                                        if 'BKO '+c in df_aba.columns and c not in ['Operações','Relacionamento','Não Atribuído']]
-                            cols_disp = [c for c in cols_exp if c in df_aba.columns]
+                            cols_disp = [c for c in ['Código','_Fornecedora','_Setor','Tipo','Status',
+                                         'Fila Atual','BKO Relacionamentos','BKO Operações','Valor Total']
+                                         if c in df_aba.columns]
                             df_exp = df_aba[cols_disp].copy()
                             df_exp = df_exp.rename(columns={'_Fornecedora':'Fornecedora','_Setor':'Setor'})
-                            df_exp['Responsabilidade'] = aba_nome
-                            aba_nome_safe = aba_nome[:31]
-                            df_exp.to_excel(w, index=False, sheet_name=aba_nome_safe)
+                            df_exp['Atribuído'] = df_aba['AtribBKO'].map({True:'Sim',False:'Não'}).values
+                            df_exp.to_excel(w, index=False, sheet_name=aba_nome[:31])
                     out.seek(0)
                     st.download_button(
                         label='⬇ Baixar detalhamento',
                         data=out,
-                        file_name=f'{fam}_responsabilidade.xlsx',
+                        file_name=f'{fam}_fila_atual.xlsx',
                         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                         key=f'exp_{fam}_{subtitulo[:8]}',
                         use_container_width=True,
@@ -594,13 +581,6 @@ def render_dashboard(tickets, data, titulo, subtitulo):
 
     # Totais de responsabilidade geral
     ft_at = tickets[tickets['Atraso']]
-    cores_resp_g = {
-        'Operações':'#42a5f5','Relacionamento':'#ffa726',
-        'Contratos':'#ab47bc','Suporte ao Cliente':'#26a69a',
-        'ReclameAQUI':'#ef5350','Experiência do Cliente':'#66bb6a',
-        'Meet Call':'#ffa726','Suporte ao Licenciado':'#8d6e63',
-        'Inadimplência':'#78909c','Não Atribuído':'#555'
-    }
 
     with cols[total_col]:
         st.markdown(
@@ -616,43 +596,54 @@ def render_dashboard(tickets, data, titulo, subtitulo):
 
         st.markdown(
             '<div style="background:#111;border:1px solid #1e1e1e;border-radius:8px;padding:10px;margin-top:4px">'
-            '<div style="font-size:10px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Responsabilidade — total</div>'
+            '<div style="font-size:10px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Fila Atual — total</div>'
             '</div>', unsafe_allow_html=True)
 
-        rows_tot_html = ''
+        filas_ord_tot = sorted(ft_at['Responsabilidade'].unique().tolist(),
+                               key=lambda f: -len(ft_at[ft_at['Responsabilidade']==f]))
+        tbl_tot_html = (
+            '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+            '<thead><tr>'
+            '<th style="text-align:left;color:#5aad7e;padding:3px 4px;font-size:10px">FILA</th>'
+            '<th style="text-align:right;color:#5aad7e;padding:3px 4px;font-size:10px">TOT.</th>'
+            '<th style="text-align:right;color:#5aad7e;padding:3px 4px;font-size:10px">ATR.</th>'
+            '<th style="text-align:right;color:#ef5350;padding:3px 4px;font-size:10px">N.ATR.</th>'
+            '</tr></thead><tbody>'
+        )
         excel_abas_tot = {}
-        for col_bko, resp_label in BKO_COLS + [('', 'Não Atribuído')]:
-            df_resp_tot = ft_at[ft_at['Responsabilidade']==resp_label]
-            n_resp_tot = len(df_resp_tot)
-            if n_resp_tot == 0: continue
-            icone = BKO_ICONES.get(resp_label,'—')
-            cor = cores_resp_g.get(resp_label,'#888')
-            rows_tot_html += (
-                f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                f'font-size:11px;padding:4px 0;border-top:1px solid #1e1e1e">'
-                f'<span style="color:#888">{icone} {resp_label}</span>'
-                f'<span style="font-weight:600;color:{cor}">{n_resp_tot}</span>'
-                f'</div>'
+        for fila in filas_ord_tot:
+            df_fila_tot = ft_at[ft_at['Responsabilidade']==fila]
+            n_tot = len(df_fila_tot)
+            n_at  = int(df_fila_tot['AtribBKO'].sum())
+            n_nat = n_tot - n_at
+            tbl_tot_html += (
+                f'<tr style="border-top:1px solid #1e1e1e">'
+                f'<td style="color:#aaa;padding:3px 4px;font-size:10px">{fila}</td>'
+                f'<td style="color:#ccc;font-weight:600;text-align:right;padding:3px 4px;font-size:10px">{n_tot}</td>'
+                f'<td style="color:#5aad7e;font-weight:600;text-align:right;padding:3px 4px;font-size:10px">{n_at}</td>'
+                f'<td style="color:#ef5350;font-weight:600;text-align:right;padding:3px 4px;font-size:10px">{n_nat}</td>'
+                f'</tr>'
             )
-            excel_abas_tot[resp_label] = data.loc[data.index.isin(df_resp_tot.index)].copy()
-
-        st.markdown(rows_tot_html, unsafe_allow_html=True)
+            excel_abas_tot[fila] = data.loc[data.index.isin(df_fila_tot.index)].copy()
+        tbl_tot_html += '</tbody></table>'
+        st.markdown(tbl_tot_html, unsafe_allow_html=True)
 
         if excel_abas_tot:
             out_tot = io.BytesIO()
             with pd.ExcelWriter(out_tot, engine='openpyxl') as w:
                 for aba_nome, df_aba in excel_abas_tot.items():
                     cols_disp = [c for c in ['Código','_Fornecedora','_Setor','Tipo','Status',
-                                 'BKO Relacionamentos','BKO Operações','Valor Total'] if c in df_aba.columns]
+                                 'Fila Atual','BKO Relacionamentos','BKO Operações','Valor Total']
+                                 if c in df_aba.columns]
                     df_exp = df_aba[cols_disp].copy()
                     df_exp = df_exp.rename(columns={'_Fornecedora':'Fornecedora','_Setor':'Setor'})
-                    df_exp['Responsabilidade'] = aba_nome
+                    df_exp['Atribuído'] = df_aba['AtribBKO'].map({True:'Sim',False:'Não'}).values
                     df_exp.to_excel(w, index=False, sheet_name=aba_nome[:31])
             out_tot.seek(0)
             st.download_button(
                 label='⬇ Baixar detalhamento total',
                 data=out_tot,
-                file_name='Total_responsabilidade.xlsx',
+                file_name='Total_fila_atual.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 key=f'exp_tot_{subtitulo[:8]}',
                 use_container_width=True,
