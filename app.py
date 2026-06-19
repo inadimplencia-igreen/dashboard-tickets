@@ -153,20 +153,38 @@ def pct(n,t): return f'{n/t*100:.1f}%' if t else '0%'
 def get_familia(nome_forn):
     return FAMILIA_MAP_NORM.get(normalizar(nome_forn), 'Outros')
 
+def extrair_data_arquivo(arq):
+    """Tenta extrair data do nome do arquivo em vários formatos."""
+    meses_str = {'jan':'01','fev':'02','mar':'03','abr':'04','mai':'05','jun':'06',
+                 'jul':'07','ago':'08','set':'09','out':'10','nov':'11','dez':'12'}
+    # Formato: AAAA-MM-DD (ex: tickets_2026-06-12)
+    m = re.search(r'(\d{4})-(\d{2})-(\d{2})', arq)
+    if m:
+        return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+    # Formato: DDmesAAAA (ex: 19jun2026)
+    m = re.search(r'(\d{1,2})([a-z]{3})(\d{4})', arq, re.IGNORECASE)
+    if m:
+        mes = meses_str.get(m.group(2).lower(), '00')
+        return f"{m.group(1).zfill(2)}/{mes}/{m.group(3)}"
+    # Formato: DD-MM (ex: Tickets_19-06) — assume ano atual
+    m = re.search(r'(\d{1,2})-(\d{2})(?!\d)', arq)
+    if m:
+        import datetime
+        ano = str(datetime.date.today().year)
+        return f"{m.group(1).zfill(2)}/{m.group(2)}/{ano}"
+    # Formato: DD/MM/AAAA ou DDMMAAAA
+    m = re.search(r'(\d{2})[/-](\d{2})[/-](\d{4})', arq)
+    if m:
+        return f"{m.group(1)}/{m.group(2)}/{m.group(3)}"
+    return arq.replace('.xlsx','').replace('Tickets_','').replace('tickets_','')
+
 def listar_planilhas():
     pasta = 'dados'
     if not os.path.exists(pasta): return {}
     arquivos = sorted([f for f in os.listdir(pasta) if f.endswith('.xlsx')], reverse=True)
     datas = {}
     for arq in arquivos:
-        m = re.search(r'(\d{1,2})([a-z]{3})(\d{4})', arq, re.IGNORECASE)
-        if m:
-            dia,mes_str,ano = m.group(1),m.group(2).lower(),m.group(3)
-            meses = {'jan':'01','fev':'02','mar':'03','abr':'04','mai':'05','jun':'06',
-                     'jul':'07','ago':'08','set':'09','out':'10','nov':'11','dez':'12'}
-            label = f"{dia.zfill(2)}/{meses.get(mes_str,'00')}/{ano}"
-        else:
-            label = arq.replace('.xlsx','').replace('Tickets_','')
+        label = extrair_data_arquivo(arq)
         datas[label] = os.path.join(pasta, arq)
     return datas
 
@@ -174,11 +192,13 @@ def listar_planilhas():
 def load_data(filepath):
     xl = pd.ExcelFile(filepath)
     sheets_tickets = [s for s in xl.sheet_names if s.startswith('Tickets - ')]
-    has_consolidado = 'Consolidado' in xl.sheet_names
+    # Aceita tanto 'CONSOLIDADOS' quanto 'Consolidado'
+    has_consolidado = 'CONSOLIDADOS' in xl.sheet_names or 'Consolidado' in xl.sheet_names
+    aba_consolidado = 'CONSOLIDADOS' if 'CONSOLIDADOS' in xl.sheet_names else 'Consolidado'
 
     if has_consolidado:
         # Aba única consolidada com coluna Fornecedora
-        data = pd.read_excel(filepath, sheet_name='Consolidado')
+        data = pd.read_excel(filepath, sheet_name=aba_consolidado)
         if 'Fornecedora' in data.columns:
             data['_Fornecedora'] = data['Fornecedora'].fillna('Sem Fornecedora').astype(str).str.strip()
         else:
@@ -818,12 +838,24 @@ with st.sidebar:
         st.session_state.data_sel = datas_sb[0]
 
     st.markdown('<p style="font-size:11px;font-weight:600;color:#5aad7e;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Base de dados</p>', unsafe_allow_html=True)
-    for label in datas_sb:
+
+    if 'ver_todas_bases' not in st.session_state:
+        st.session_state.ver_todas_bases = False
+
+    bases_visiveis = datas_sb if st.session_state.ver_todas_bases else datas_sb[:3]
+
+    for label in bases_visiveis:
         ativo = st.session_state.get('data_sel') == label
         if st.button(label, key='sb_btn_'+label,
                      type='primary' if ativo else 'secondary',
                      use_container_width=True):
             st.session_state.data_sel = label
+            st.rerun()
+
+    if len(datas_sb) > 3:
+        lbl_ver = '▲ Recolher' if st.session_state.ver_todas_bases else f'+ Ver todas ({len(datas_sb)})'
+        if st.button(lbl_ver, key='btn_ver_todas', type='secondary', use_container_width=True):
+            st.session_state.ver_todas_bases = not st.session_state.ver_todas_bases
             st.rerun()
 
     st.divider()
