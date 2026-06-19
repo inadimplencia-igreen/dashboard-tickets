@@ -181,7 +181,18 @@ def extrair_data_arquivo(arq):
 def listar_planilhas():
     pasta = 'dados'
     if not os.path.exists(pasta): return {}
-    arquivos = sorted([f for f in os.listdir(pasta) if f.endswith('.xlsx')], reverse=True)
+    arquivos = [f for f in os.listdir(pasta) if f.endswith('.xlsx')]
+    # Ordena pela data extraída (mais recente primeiro)
+    def sort_key(arq):
+        label = extrair_data_arquivo(arq)
+        try:
+            parts = label.split('/')
+            if len(parts) == 3:
+                return f"{parts[2]}{parts[1]}{parts[0]}"
+        except:
+            pass
+        return arq
+    arquivos = sorted(arquivos, key=sort_key, reverse=True)
     datas = {}
     for arq in arquivos:
         label = extrair_data_arquivo(arq)
