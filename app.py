@@ -539,14 +539,14 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                 tbl_html += '</tbody></table>'
                 st.markdown(tbl_html, unsafe_allow_html=True)
 
-                if excel_abas and any(len(v)>0 for v in excel_abas.values()):
+                abas_validas = {k:v for k,v in excel_abas.items() if len(v)>0}
+                if abas_validas:
                     out = io.BytesIO()
+                    cols_base = ['Código','_Fornecedora','_Setor','Tipo','Status',
+                                 'Fila Atual','BKO Relacionamentos','BKO Operações','Valor Total']
                     with pd.ExcelWriter(out, engine='openpyxl') as w:
-                        for aba_nome, df_aba in excel_abas.items():
-                            if len(df_aba) == 0: continue
-                            cols_disp = [c for c in ['Código','_Fornecedora','_Setor','Tipo','Status',
-                                         'Fila Atual','BKO Relacionamentos','BKO Operações','Valor Total']
-                                         if c in df_aba.columns]
+                        for aba_nome, df_aba in abas_validas.items():
+                            cols_disp = [c for c in cols_base if c in df_aba.columns]
                             df_exp = df_aba[cols_disp].copy()
                             df_exp = df_exp.rename(columns={'_Fornecedora':'Fornecedora','_Setor':'Setor'})
                             df_exp['Atribuído'] = df_aba['AtribBKO'].map({True:'Sim',False:'Não'}).values
@@ -629,14 +629,14 @@ def render_dashboard(tickets, data, titulo, subtitulo):
         tbl_tot_html += '</tbody></table>'
         st.markdown(tbl_tot_html, unsafe_allow_html=True)
 
-        if excel_abas_tot and any(len(v)>0 for v in excel_abas_tot.values()):
+        abas_tot_validas = {k:v for k,v in excel_abas_tot.items() if len(v)>0}
+        if abas_tot_validas:
             out_tot = io.BytesIO()
+            cols_base = ['Código','_Fornecedora','_Setor','Tipo','Status',
+                         'Fila Atual','BKO Relacionamentos','BKO Operações','Valor Total']
             with pd.ExcelWriter(out_tot, engine='openpyxl') as w:
-                for aba_nome, df_aba in excel_abas_tot.items():
-                    if len(df_aba) == 0: continue
-                    cols_disp = [c for c in ['Código','_Fornecedora','_Setor','Tipo','Status',
-                                 'Fila Atual','BKO Relacionamentos','BKO Operações','Valor Total']
-                                 if c in df_aba.columns]
+                for aba_nome, df_aba in abas_tot_validas.items():
+                    cols_disp = [c for c in cols_base if c in df_aba.columns]
                     df_exp = df_aba[cols_disp].copy()
                     df_exp = df_exp.rename(columns={'_Fornecedora':'Fornecedora','_Setor':'Setor'})
                     df_exp['Atribuído'] = df_aba['AtribBKO'].map({True:'Sim',False:'Não'}).values
