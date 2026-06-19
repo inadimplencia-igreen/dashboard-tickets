@@ -173,16 +173,31 @@ def listar_planilhas():
 @st.cache_data
 def load_data(filepath):
     xl = pd.ExcelFile(filepath)
-    sheets = [s for s in xl.sheet_names if s.startswith('Tickets - ')]
-    dfs = []
-    for sheet in sheets:
-        df = pd.read_excel(filepath, sheet_name=sheet)
-        forn = sheet.replace('Tickets - ','').strip()
-        familia = get_familia(forn)
-        df['_Fornecedora'] = forn
-        df['_Familia']     = familia
-        dfs.append(df)
-    data = pd.concat(dfs, ignore_index=True)
+    sheets_tickets = [s for s in xl.sheet_names if s.startswith('Tickets - ')]
+    has_consolidado = 'Consolidado' in xl.sheet_names
+
+    if has_consolidado:
+        # Aba única consolidada com coluna Fornecedora
+        data = pd.read_excel(filepath, sheet_name='Consolidado')
+        if 'Fornecedora' in data.columns:
+            data['_Fornecedora'] = data['Fornecedora'].fillna('Sem Fornecedora').astype(str).str.strip()
+        else:
+            data['_Fornecedora'] = 'Sem Fornecedora'
+        data['_Familia'] = data['_Fornecedora'].apply(get_familia)
+    elif sheets_tickets:
+        # Abas separadas por fornecedora (formato antigo)
+        dfs = []
+        for sheet in sheets_tickets:
+            df = pd.read_excel(filepath, sheet_name=sheet)
+            forn = sheet.replace('Tickets - ','').strip()
+            familia = get_familia(forn)
+            df['_Fornecedora'] = forn
+            df['_Familia']     = familia
+            dfs.append(df)
+        data = pd.concat(dfs, ignore_index=True)
+    else:
+        data = pd.DataFrame()
+        return data
     bko_cols = [c for c in data.columns if c.startswith('BKO') and 'Atribuido em' not in c and 'Atribuído em' not in c]
     def tem_bko(row):
         for col in bko_cols:
