@@ -545,12 +545,18 @@ def render_dashboard(tickets, data, titulo, subtitulo):
                     cols_base = ['Código','_Fornecedora','_Setor','Tipo','Status',
                                  'Fila Atual','BKO Relacionamentos','BKO Operações','Valor Total']
                     with pd.ExcelWriter(out, engine='openpyxl') as w:
+                        escreveu = False
                         for aba_nome, df_aba in abas_validas.items():
                             cols_disp = [c for c in cols_base if c in df_aba.columns]
                             df_exp = df_aba[cols_disp].copy()
                             df_exp = df_exp.rename(columns={'_Fornecedora':'Fornecedora','_Setor':'Setor'})
-                            df_exp['Atribuído'] = df_aba['AtribBKO'].map({True:'Sim',False:'Não'}).values
-                            df_exp.to_excel(w, index=False, sheet_name=aba_nome[:31])
+                            if 'AtribBKO' in df_aba.columns:
+                                df_exp['Atribuído'] = df_aba['AtribBKO'].map({True:'Sim',False:'Não'}).values
+                            if len(df_exp) > 0:
+                                df_exp.to_excel(w, index=False, sheet_name=aba_nome[:31])
+                                escreveu = True
+                        if not escreveu:
+                            pd.DataFrame({'Info':['Sem dados']}).to_excel(w, index=False, sheet_name='Dados')
                     out.seek(0)
                     st.download_button(
                         label='⬇ Baixar detalhamento',
@@ -635,12 +641,18 @@ def render_dashboard(tickets, data, titulo, subtitulo):
             cols_base = ['Código','_Fornecedora','_Setor','Tipo','Status',
                          'Fila Atual','BKO Relacionamentos','BKO Operações','Valor Total']
             with pd.ExcelWriter(out_tot, engine='openpyxl') as w:
+                escreveu_tot = False
                 for aba_nome, df_aba in abas_tot_validas.items():
                     cols_disp = [c for c in cols_base if c in df_aba.columns]
                     df_exp = df_aba[cols_disp].copy()
                     df_exp = df_exp.rename(columns={'_Fornecedora':'Fornecedora','_Setor':'Setor'})
-                    df_exp['Atribuído'] = df_aba['AtribBKO'].map({True:'Sim',False:'Não'}).values
-                    df_exp.to_excel(w, index=False, sheet_name=aba_nome[:31])
+                    if 'AtribBKO' in df_aba.columns:
+                        df_exp['Atribuído'] = df_aba['AtribBKO'].map({True:'Sim',False:'Não'}).values
+                    if len(df_exp) > 0:
+                        df_exp.to_excel(w, index=False, sheet_name=aba_nome[:31])
+                        escreveu_tot = True
+                if not escreveu_tot:
+                    pd.DataFrame({'Info':['Sem dados']}).to_excel(w, index=False, sheet_name='Dados')
             out_tot.seek(0)
             st.download_button(
                 label='⬇ Baixar detalhamento total',
